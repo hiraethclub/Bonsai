@@ -4,6 +4,9 @@
     python -m bonsai login
     python -m bonsai categories [--counts]
     python -m bonsai streams [--category ID] [--limit N]
+    python -m bonsai export -o FILE --category ID [--category ID ...] [--ext m3u8] [--epg]
+
+With no command, `python -m bonsai` opens the window instead.
 """
 
 from __future__ import annotations
@@ -15,6 +18,8 @@ from datetime import datetime
 
 from . import __version__
 from .api import XtreamClient, XtreamError
+from .m3u import build_entries, write_m3u
+from .models import group_channels
 from .storage import ConfigError, config_path, ensure_config_template, load_config
 
 
@@ -83,6 +88,21 @@ def cmd_streams(args: argparse.Namespace) -> None:
     print(f"\n{len(chans)} live channels{more}")
 
 
+def cmd_export(args: argparse.Namespace) -> None:
+    client = _client()
+    groups = group_channels(client.live_categories(), client.live_streams())
+    wanted = set(args.category)
+    known = {cat.id for cat, _ in groups}
+    missing = sorted(wanted - known)
+    if missing:
+        raise ConfigError(f"Unknown category id(s): {', '.join(missing)}. See `bonsai categories`.")
+    selected = {ch.stream_id for cat, chans in groups if cat.id in wanted for ch in chans}
+    entries = build_entries(groups, selected, lambda ch: client.stream_url(ch.stream_id, args.ext))
+    write_m3u(args.output, entries, client.epg_url() if args.epg else None)
+    print(f"Wrote {len(entries)} channels from {len(wanted)} categories to {args.output}")
+    print("Note: the file contains your username and password in every URL.")
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="bonsai", description="Bonsai: Xtream live TV playlist trimmer")
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -103,6 +123,14 @@ def build_parser() -> argparse.ArgumentParser:
     ps.add_argument("--category", metavar="ID", help="only this category id")
     ps.add_argument("--limit", type=int, default=50, help="max rows to print (0 = all, default 50)")
     ps.set_defaults(func=cmd_streams)
+
+    pe = sub.add_parser("export", help="write a playlist of whole categories")
+    pe.add_argument("-o", "--output", required=True, metavar="FILE", help="playlist file to write")
+    pe.add_argument("--category", action="append", required=True, metavar="ID",
+                    help="category id to include (repeat for more)")
+    pe.add_argument("--ext", choices=("ts", "m3u8"), default="ts", help="stream format (default ts)")
+    pe.add_argument("--epg", action="store_true", help="add x-tvg-url to the header")
+    pe.set_defaults(func=cmd_export)
     return p
 
 
@@ -110,7 +138,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         args.func(args)
-    except (ConfigError, XtreamError) as exc:
+    except (ConfigError, XtreamError, OSError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:

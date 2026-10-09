@@ -76,6 +76,28 @@ class Channel:
         )
 
 
+UNCATEGORISED = Category(id="", name="Uncategorised")
+
+
+def group_channels(
+    categories: list[Category], channels: list[Channel]
+) -> list[tuple[Category, list[Channel]]]:
+    """Pair each category with its channels, both in the provider's order.
+
+    Channels whose category id is unknown go into a trailing "Uncategorised"
+    group. Categories with no channels are kept (with an empty list).
+    """
+    buckets: dict[str, list[Channel]] = {c.id: [] for c in categories}
+    orphans: list[Channel] = []
+    for ch in channels:
+        bucket = buckets.get(ch.category_id)
+        (orphans if bucket is None else bucket).append(ch)
+    groups = [(c, buckets[c.id]) for c in categories]
+    if orphans:
+        groups.append((UNCATEGORISED, orphans))
+    return groups
+
+
 @dataclass(frozen=True)
 class AccountInfo:
     username: str

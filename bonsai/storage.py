@@ -11,6 +11,7 @@ from pathlib import Path
 from . import APP_NAME
 
 CONFIG_FILENAME = "config.json"
+SETTINGS_FILENAME = "settings.json"
 
 
 class ConfigError(Exception):
@@ -89,3 +90,39 @@ def ensure_config_template(path: Path | None = None) -> tuple[Path, bool]:
         return path, False
     save_config(Config(server="http://example.com:8080"), path)
     return path, True
+
+
+@dataclass
+class Settings:
+    """Non-secret app preferences (kept apart from the credentials)."""
+
+    last_export_path: str = ""
+    stream_format: str = "ts"
+    include_epg: bool = False
+
+
+def settings_path() -> Path:
+    return config_dir() / SETTINGS_FILENAME
+
+
+def load_settings(path: Path | None = None) -> Settings:
+    path = path or settings_path()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return Settings()
+    if not isinstance(data, dict):
+        return Settings()
+    defaults = Settings()
+    values = {}
+    for name in Settings.__dataclass_fields__:
+        value = data.get(name)
+        if isinstance(value, type(getattr(defaults, name))):
+            values[name] = value
+    return Settings(**values)
+
+
+def save_settings(settings: Settings, path: Path | None = None) -> Path:
+    path = path or settings_path()
+    _write_private(path, json.dumps(asdict(settings), indent=2) + "\n")
+    return path
