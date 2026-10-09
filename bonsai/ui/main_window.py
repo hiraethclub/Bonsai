@@ -33,6 +33,7 @@ from .. import __version__
 from ..api import XtreamClient
 from ..m3u import build_entries, write_m3u
 from ..models import AccountInfo, group_channels
+from ..quality import Tier, parse_tiers
 from ..storage import (
     Config,
     ConfigError,
@@ -41,7 +42,7 @@ from ..storage import (
     save_config,
     save_settings,
 )
-from .channel_tree import COL_ID, COL_NAME, COL_TICKED, ChannelTreeModel
+from .channel_tree import COL_ID, COL_NAME, COL_TICKED, COL_TIER, ChannelTreeModel
 from .workers import TaskRunner
 
 # Expanding every category is cheap for a search hit list but slow for the whole catalogue.
@@ -135,6 +136,29 @@ class MainWindow(QMainWindow):
         filter_row.addWidget(clear_btn)
         root.addLayout(filter_row)
 
+        # Resolution filter
+        tier_box = QGroupBox("Resolution, from tags in channel names")
+        tier_layout = QVBoxLayout(tier_box)
+        tier_row = QHBoxLayout()
+        tier_row.addWidget(QLabel("Show:"))
+        self.tier_checks: dict[Tier, QCheckBox] = {}
+        for tier in Tier:
+            box = QCheckBox(tier.label)
+            box.toggled.connect(self._tiers_changed)
+            self.tier_checks[tier] = box
+            tier_row.addWidget(box)
+        tier_row.addStretch(1)
+        tier_layout.addLayout(tier_row)
+        note = QLabel(
+            "Hidden channels are left out of the export even if ticked. "
+            "Note: \u201cHD\u201d is the provider's label and is not guaranteed to be 720p; "
+            "some HD channels are 1080i."
+        )
+        note.setWordWrap(True)
+        note.setStyleSheet("color: palette(placeholder-text);")
+        tier_layout.addWidget(note)
+        root.addWidget(tier_box)
+
         # Tree
         self.model = ChannelTreeModel(self)
         self.model.tickedChanged.connect(self._update_count)
@@ -147,6 +171,8 @@ class MainWindow(QMainWindow):
         header = self.tree.header()
         header.setStretchLastSection(False)
         header.setSectionResizeMode(COL_NAME, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(COL_TIER, QHeaderView.ResizeMode.Fixed)
+        header.resizeSection(COL_TIER, 60)
         header.setSectionResizeMode(COL_TICKED, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(COL_ID, QHeaderView.ResizeMode.Fixed)
         header.resizeSection(COL_TICKED, 90)
@@ -169,7 +195,7 @@ class MainWindow(QMainWindow):
         self.progress = QProgressBar(maximumWidth=140, textVisible=False)
         self.progress.setRange(0, 0)
         self.progress.hide()
-        self.count_label = QLabel()
+        self.count_label = QLabel(wordWrap=True)
         self.format_combo = QComboBox()
         self.format_combo.addItems(["ts", "m3u8"])
         self.format_combo.setToolTip("Stream URL extension. m3u8 is only offered if the account allows it.")
@@ -198,6 +224,12 @@ class MainWindow(QMainWindow):
             self.settings.stream_format if self.settings.stream_format in ("ts", "m3u8") else "ts"
         )
         self._update_format_options()
+        hidden = parse_tiers(self.settings.hidden_tiers)
+        for tier, box in self.tier_checks.items():
+            box.blockSignals(True)
+            box.setChecked(tier not in hidden)
+            box.blockSignals(False)
+        self.model.set_hidden_tiers(hidden)
 
     # -- status helpers ----------------------------------------------------
 
@@ -220,8 +252,26 @@ class MainWindow(QMainWindow):
         text = f"{n} {ch} selected in {cats} {cat}"
         if total:
             text += f"  (of {total})"
+        hidden = self.model.hidden_ticked_count()
+        if hidden:
+            text += f"  \u00b7 {hidden} ticked but hidden by the resolution filter"
         self.count_label.setText(text)
         self.export_btn.setEnabled(n > 0 and self.client is not None)
+
+    def _update_tier_labels(self) -> None:
+        counts = self.model.tier_counts()
+        for tier, box in self.tier_checks.items():
+            box.setText(f"{tier.label} ({counts[tier]})" if counts else tier.label)
+
+    def _tiers_changed(self) -> None:
+        hidden = {t for t, box in self.tier_checks.items() if not box.isChecked()}
+        self.model.set_hidden_tiers(hidden)
+        self._apply_filter()
+        self.settings.hidden_tiers = sorted(t.value for t in hidden)
+        try:
+            save_settings(self.settings)
+        except OSError:
+            pass
 
     def _update_format_options(self) -> None:
         m3u8_item = self.format_combo.model().item(1)
@@ -291,6 +341,7 @@ class MainWindow(QMainWindow):
 
     def _channels_loaded(self, groups) -> None:
         self.model.set_groups(groups)
+        self._update_tier_labels()
         self._apply_filter()
         n_cats = sum(1 for _, chans in groups if chans)
         self.statusBar().showMessage(

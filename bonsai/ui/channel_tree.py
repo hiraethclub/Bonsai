@@ -2,32 +2,42 @@
 
 A custom model rather than QStandardItemModel so several thousand channels
 load instantly: rows are only materialised when a category is expanded.
-The search filter is applied inside the model; ticking a category ticks
-only its currently visible channels.
+
+Two filters are applied inside the model:
+- the tier filter decides which channels are eligible at all. Hidden tiers
+  are left out of the view, the counts and the export, but their ticks are
+  remembered in case the tier is shown again;
+- the search filter only narrows what is on screen. Ticking a category
+  ticks only its currently visible channels.
 """
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Iterable
 
 from PySide6.QtCore import QAbstractItemModel, QModelIndex, Qt, Signal
 from PySide6.QtGui import QFont
 
 from ..models import Category, Channel
+from ..quality import DEFAULT_HIDDEN_TIERS, Tier, classify, normalise_name, tier_from_name
 
-COL_NAME, COL_TICKED, COL_ID = range(3)
-HEADERS = ("Name", "Ticked", "Stream ID")
+COL_NAME, COL_TIER, COL_TICKED, COL_ID = range(4)
+HEADERS = ("Name", "Tier", "Ticked", "Stream ID")
 
 
 class _CatNode:
-    __slots__ = ("cat", "channels", "visible", "row", "ticked", "child_ref")
+    __slots__ = ("cat", "key", "tier", "channels", "shown", "visible", "row", "ticked", "child_ref")
 
     def __init__(self, cat: Category, channels: list[Channel]) -> None:
         self.cat = cat
-        self.channels = channels
-        self.visible = channels
+        self.key = normalise_name(cat.name).casefold()  # for searching
+        self.tier = tier_from_name(cat.name)
+        self.channels = channels  # everything the provider lists
+        self.shown = channels  # not hidden by the tier filter
+        self.visible = channels  # shown and matching the search
         self.row = 0
-        self.ticked = 0  # ticked channels in this category (all, not only visible)
+        self.ticked = 0  # ticked channels among `shown`
         self.child_ref = _ChildRef(self)
 
 
@@ -54,7 +64,13 @@ class ChannelTreeModel(QAbstractItemModel):
         self._groups: list[_CatNode] = []
         self._visible: list[_CatNode] = []
         self._node_of: dict[int, _CatNode] = {}
+        self._tier: dict[int, Tier] = {}
+        self._inherited: set[int] = set()  # tier came from the category name, not the channel's
+        self._key: dict[int, str] = {}  # normalised, casefolded channel names for searching
+        self._italic = QFont()
+        self._italic.setItalic(True)
         self._ticked: set[int] = set()
+        self._hidden_tiers: frozenset[Tier] = DEFAULT_HIDDEN_TIERS
         self._filter = ""
         self._bold = QFont()
         self._bold.setBold(True)
@@ -66,35 +82,62 @@ class ChannelTreeModel(QAbstractItemModel):
         self.beginResetModel()
         self._groups = [_CatNode(cat, list(chans)) for cat, chans in groups if chans]
         self._node_of = {ch.stream_id: n for n in self._groups for ch in n.channels}
+        self._tier, self._inherited, self._key = {}, set(), {}
+        for node in self._groups:
+            for ch in node.channels:
+                tier, inherited = classify(ch.name, node.tier)
+                self._tier[ch.stream_id] = tier
+                if inherited:
+                    self._inherited.add(ch.stream_id)
+                self._key[ch.stream_id] = normalise_name(ch.name).casefold()
         self._ticked &= self._node_of.keys()
-        self._recount()
-        self._apply_filter()
+        self._refilter()
+        self.endResetModel()
+        self.tickedChanged.emit()
+
+    def set_hidden_tiers(self, tiers: Iterable[Tier]) -> None:
+        tiers = frozenset(tiers)
+        if tiers == self._hidden_tiers:
+            return
+        self.beginResetModel()
+        self._hidden_tiers = tiers
+        self._refilter()
         self.endResetModel()
         self.tickedChanged.emit()
 
     def set_filter(self, text: str) -> None:
-        text = text.strip().casefold()
+        text = normalise_name(text.strip()).casefold()
         if text == self._filter:
             return
         self.beginResetModel()
         self._filter = text
-        self._apply_filter()
+        self._apply_search()
         self.endResetModel()
 
-    def _apply_filter(self) -> None:
-        f = self._filter
+    def _refilter(self) -> None:
+        hidden = self._hidden_tiers
         for node in self._groups:
-            if not f or f in node.cat.name.casefold():
-                node.visible = node.channels
+            if hidden:
+                node.shown = [ch for ch in node.channels if self._tier[ch.stream_id] not in hidden]
             else:
-                node.visible = [ch for ch in node.channels if f in ch.name.casefold()]
+                node.shown = node.channels
+            node.ticked = sum(1 for ch in node.shown if ch.stream_id in self._ticked)
+        self._apply_search()
+
+    def _apply_search(self) -> None:
+        f = self._filter
+        key = self._key
+        for node in self._groups:
+            if not f or f in node.key:
+                node.visible = node.shown
+            else:
+                node.visible = [ch for ch in node.shown if f in key[ch.stream_id]]
         self._visible = [n for n in self._groups if n.visible]
         for row, node in enumerate(self._visible):
             node.row = row
 
-    def _recount(self) -> None:
-        for node in self._groups:
-            node.ticked = sum(1 for ch in node.channels if ch.stream_id in self._ticked)
+    def _eligible(self, stream_id: int) -> bool:
+        return self._tier.get(stream_id) not in self._hidden_tiers
 
     # -- queries -------------------------------------------------------------
 
@@ -102,12 +145,23 @@ class ChannelTreeModel(QAbstractItemModel):
     def is_filtered(self) -> bool:
         return bool(self._filter)
 
+    @property
+    def hidden_tiers(self) -> frozenset[Tier]:
+        return self._hidden_tiers
+
     def groups(self) -> list[tuple[Category, list[Channel]]]:
         """All categories and channels, unfiltered, in provider order."""
         return [(n.cat, n.channels) for n in self._groups]
 
     def ticked_ids(self) -> frozenset[int]:
-        return frozenset(self._ticked)
+        """What gets exported: ticked channels that the tier filter does not hide."""
+        return frozenset(sid for sid in self._ticked if self._eligible(sid))
+
+    def tier_of(self, stream_id: int) -> Tier | None:
+        return self._tier.get(stream_id)
+
+    def tier_counts(self) -> Counter[Tier]:
+        return Counter(self._tier.values())
 
     def total_channels(self) -> int:
         return len(self._node_of)
@@ -116,8 +170,12 @@ class ChannelTreeModel(QAbstractItemModel):
         return sum(len(n.visible) for n in self._visible)
 
     def ticked_summary(self) -> tuple[int, int]:
-        """(ticked channels, categories with at least one ticked channel)."""
-        return len(self._ticked), sum(1 for n in self._groups if n.ticked)
+        """(exportable ticked channels, categories with at least one of them)."""
+        return sum(n.ticked for n in self._groups), sum(1 for n in self._groups if n.ticked)
+
+    def hidden_ticked_count(self) -> int:
+        """Ticked channels left out of the export because their tier is hidden."""
+        return sum(1 for sid in self._ticked if not self._eligible(sid))
 
     # -- ticking -------------------------------------------------------------
 
@@ -129,10 +187,10 @@ class ChannelTreeModel(QAbstractItemModel):
                 continue
             if ticked:
                 self._ticked.add(sid)
-                node.ticked += 1
             else:
                 self._ticked.discard(sid)
-                node.ticked -= 1
+            if self._eligible(sid):
+                node.ticked += 1 if ticked else -1
             changed.add(node)
         if changed:
             self._emit_changed(changed)
@@ -163,8 +221,8 @@ class ChannelTreeModel(QAbstractItemModel):
                 )
 
     def _cat_state(self, node: _CatNode) -> Qt.CheckState:
-        if node.visible is node.channels:
-            ticked, total = node.ticked, len(node.channels)
+        if node.visible is node.shown:
+            ticked, total = node.ticked, len(node.shown)
         else:
             ticked = sum(1 for ch in node.visible if ch.stream_id in self._ticked)
             total = len(node.visible)
@@ -228,26 +286,44 @@ class ChannelTreeModel(QAbstractItemModel):
             if role == Qt.ItemDataRole.DisplayRole:
                 if col == COL_NAME:
                     return node.cat.name
+                if col == COL_TIER:
+                    return "" if node.tier is Tier.UNTAGGED else node.tier.value
                 if col == COL_TICKED:
-                    return f"{node.ticked} / {len(node.channels)}"
+                    return f"{node.ticked} / {len(node.shown)}"
             elif role == Qt.ItemDataRole.CheckStateRole and col == COL_NAME:
                 return self._cat_state(node)
             elif role == Qt.ItemDataRole.FontRole:
                 return self._bold
             elif role == Qt.ItemDataRole.ToolTipRole and col == COL_NAME:
-                return f"{node.cat.name} — {len(node.channels)} channels"
+                hidden = len(node.channels) - len(node.shown)
+                tip = f"{node.cat.name}\n{len(node.channels)} channels"
+                if hidden:
+                    tip += f", {hidden} hidden by the tier filter"
+                return tip
             return None
 
         ch = ptr.node.visible[index.row()]
         if role == Qt.ItemDataRole.DisplayRole:
             if col == COL_NAME:
                 return ch.name
+            if col == COL_TIER:
+                tier = self._tier.get(ch.stream_id)
+                return "" if tier in (None, Tier.UNTAGGED) else tier.value
             if col == COL_ID:
                 return str(ch.stream_id)
         elif role == Qt.ItemDataRole.CheckStateRole and col == COL_NAME:
             return Qt.CheckState.Checked if ch.stream_id in self._ticked else Qt.CheckState.Unchecked
-        elif role == Qt.ItemDataRole.ToolTipRole and col == COL_NAME:
-            return ch.name
+        elif role == Qt.ItemDataRole.FontRole and col == COL_TIER and ch.stream_id in self._inherited:
+            return self._italic
+        elif role == Qt.ItemDataRole.ToolTipRole and col in (COL_NAME, COL_TIER):
+            tier = self._tier.get(ch.stream_id)
+            if tier is None or tier is Tier.UNTAGGED:
+                source = "Untagged: no quality tag in the channel or category name"
+            elif ch.stream_id in self._inherited:
+                source = f"{tier.label}, from the category name (the channel has no tag of its own)"
+            else:
+                source = f"{tier.label}, from the channel name"
+            return f"{ch.name}\nTier: {source}"
         return None
 
     def setData(self, index, value, role=Qt.ItemDataRole.EditRole) -> bool:
@@ -255,4 +331,3 @@ class ChannelTreeModel(QAbstractItemModel):
             return False
         self.set_ticked_for_indexes([index], _is_checked(value))
         return True
-

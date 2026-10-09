@@ -79,6 +79,11 @@ class Channel:
 UNCATEGORISED = Category(id="", name="Uncategorised")
 
 
+def is_divider(channel: Channel) -> bool:
+    """Providers insert fake "channels" like '####### SOCCER PPV #######' as section headings."""
+    return channel.name.lstrip().startswith("###")
+
+
 def group_channels(
     categories: list[Category], channels: list[Channel]
 ) -> list[tuple[Category, list[Channel]]]:
@@ -86,10 +91,13 @@ def group_channels(
 
     Channels whose category id is unknown go into a trailing "Uncategorised"
     group. Categories with no channels are kept (with an empty list).
+    Divider rows ('### SPORTS ###') are dropped: they are not real streams.
     """
     buckets: dict[str, list[Channel]] = {c.id: [] for c in categories}
     orphans: list[Channel] = []
     for ch in channels:
+        if is_divider(ch):
+            continue
         bucket = buckets.get(ch.category_id)
         (orphans if bucket is None else bucket).append(ch)
     groups = [(c, buckets[c.id]) for c in categories]

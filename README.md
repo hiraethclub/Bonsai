@@ -4,7 +4,7 @@ Bonsai trims an Xtream Codes IPTV account's live TV list down to a small `.m3u` 
 
 Bonsai only **reads** from the provider and writes local files. It never changes anything on the provider side, so other devices can keep using the full list. It handles live TV only: no movies, series or VOD.
 
-> Status: milestones 1–3 of 7 (API client, playlist writer, main window). Next: resolution tags.
+> Status: milestones 1–4 of 7 (API client, playlist writer, main window, resolution tags). Next: profiles and caching.
 
 ## Security warning
 
@@ -65,6 +65,28 @@ Then edit the file it prints the path of:
 2. Tick categories or individual channels. Ticking a category ticks only the channels currently shown, so you can filter first (for example "bbc") and then tick a category to take just those channels.
 3. Right-click (or press Ctrl+T / Ctrl+U) to tick or untick every selected row at once.
 4. Choose the format (`ts`, or `m3u8` if the account allows it) and whether to include the EPG URL, then click **Export playlist…**.
+
+### Resolution filter
+
+The provider doesn't report resolutions, so Bonsai reads quality tags from channel names. A tag only counts as a whole word, so `HD` never matches inside `FHD`, `UHD` or `HDTV`. The tiers, most specific first:
+
+| Tier | Tags |
+| --- | --- |
+| 4K / UHD | `4K`, `UHD`, `2160p`, `3840p`, `3840` |
+| FHD / 1080 | `FHD`, `Full HD`, `1080p`, `1080i`, `1080` |
+| HD / 720 | `HD`, `720p`, `720` |
+| SD | `SD`, `576p`, `576i`, `480p` |
+| Untagged | none of the above |
+
+Tags written in superscript, like `ᴴᴰ` or `ᵁᴴᴰ ³⁸⁴⁰ᴾ`, are read as plain text, and the search box matches them too: typing `raw` finds `ᴿᴬᵂ`. A channel with no tag of its own takes the tier from its category's name. These inherited tiers appear in *italics* in the Tier column.
+
+`8K` is deliberately not treated as a resolution, because providers use it as a brand ("8K EXCLUSIVE").
+
+UHD and FHD are hidden by default, which gives a 720p maximum. Hidden channels are left out of the export even if they're ticked. Their ticks are remembered, so showing the tier again brings them back. Bonsai remembers which tiers you've hidden.
+
+"HD" is only the provider's label, so it doesn't guarantee 720p; some HD channels are really 1080i. A per-channel probe that measures the actual resolution arrives in milestone 6.
+
+Divider rows such as `####### SOCCER PPV #######` are hidden, because they are headings rather than streams.
 
 Ticks are not saved between runs yet. Profiles arrive in milestone 5.
 

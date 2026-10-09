@@ -7,7 +7,7 @@ QtCore = pytest.importorskip("PySide6.QtCore")
 from PySide6.QtCore import QCoreApplication, QModelIndex, Qt  # noqa: E402
 
 from bonsai.models import Category, Channel  # noqa: E402
-from bonsai.ui.channel_tree import ChannelTreeModel  # noqa: E402
+from bonsai.ui.channel_tree import COL_TICKED, ChannelTreeModel  # noqa: E402
 
 Checked, Unchecked, Partial = (
     Qt.CheckState.Checked,
@@ -58,7 +58,7 @@ def test_tick_channel_makes_category_partial(model):
     cat = model.index(0, 0)
     tick(model, model.index(0, 0, cat))
     assert state(model, cat) == Partial
-    assert model.data(model.index(0, 1)) == "1 / 2"
+    assert model.data(model.index(0, COL_TICKED)) == "1 / 2"
     tick(model, model.index(1, 0, cat))
     assert state(model, cat) == Checked
     assert model.ticked_summary() == (2, 1)
@@ -110,3 +110,74 @@ def test_index_out_of_range(model):
     assert not model.index(5, 0).isValid()
     assert not model.index(5, 0, model.index(0, 0)).isValid()
     assert not model.parent(QModelIndex()).isValid()
+
+
+@pytest.fixture
+def tiered():
+    m = ChannelTreeModel()
+    m.set_hidden_tiers(set())
+    m.set_groups(
+        [
+            (Category("1", "UK"), [Channel(1, "BBC One FHD", "1"), Channel(2, "BBC One HD", "1"),
+                                    Channel(3, "BBC One", "1")]),
+            (Category("2", "4K"), [Channel(4, "Demo UHD", "2")]),
+        ]
+    )
+    return m
+
+
+def test_tier_column(tiered):
+    from bonsai.ui.channel_tree import COL_TIER
+
+    cat = tiered.index(0, 0)
+    assert [tiered.data(tiered.index(r, COL_TIER, cat)) for r in range(3)] == ["FHD", "HD", ""]
+
+
+def test_hidden_tiers_leave_view_and_export(tiered):
+    from bonsai.quality import Tier
+
+    tick(tiered, tiered.index(0, 0))  # whole UK category, all three tiers shown
+    assert tiered.ticked_ids() == {1, 2, 3}
+
+    tiered.set_hidden_tiers({Tier.FHD, Tier.UHD})
+    assert tiered.rowCount() == 1  # 4K category has nothing left
+    assert tiered.rowCount(tiered.index(0, 0)) == 2
+    assert tiered.ticked_ids() == {2, 3}
+    assert tiered.ticked_summary() == (2, 1)
+    assert tiered.hidden_ticked_count() == 1
+    assert state(tiered, tiered.index(0, 0)) == Checked
+
+    # Ticking a category while FHD is hidden does not touch the hidden channel
+    tick(tiered, tiered.index(0, 0), False)
+    assert tiered.ticked_ids() == set()
+    tiered.set_hidden_tiers(set())
+    assert tiered.ticked_ids() == {1}  # remembered from before
+
+
+def test_tier_counts(tiered):
+    from bonsai.quality import Tier
+
+    counts = tiered.tier_counts()
+    assert counts[Tier.FHD] == counts[Tier.HD] == counts[Tier.UHD] == counts[Tier.UNTAGGED] == 1
+
+
+def test_superscript_category_tag_inherited_and_searchable():
+    from bonsai.quality import Tier
+    from bonsai.ui.channel_tree import COL_TIER
+
+    m = ChannelTreeModel()
+    m.set_hidden_tiers({Tier.UHD})
+    m.set_groups(
+        [
+            (Category("1", "4K| RELAX ᵁᴴᴰ ³⁸⁴⁰ᴾ"), [Channel(1, "Fireplace", "1")]),
+            (Category("2", "US| NEWS ᴴᴰ/ᴿᴬᵂ"), [Channel(2, "CNN", "2"), Channel(3, "Fox ˢᴰ", "2")]),
+        ]
+    )
+    assert m.rowCount() == 1  # the UHD category's untagged channel inherited UHD and is hidden
+    news = m.index(0, 0)
+    assert m.data(m.index(0, COL_TIER)) == "HD"
+    assert [m.data(m.index(r, COL_TIER, news)) for r in range(2)] == ["HD", "SD"]
+    m.set_filter("raw")  # matches the superscript ᴿᴬᵂ in the category name
+    assert m.rowCount() == 1
+    m.set_filter("fox sd")
+    assert m.visible_channel_count() == 1

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from . import APP_NAME
@@ -99,6 +99,7 @@ class Settings:
     last_export_path: str = ""
     stream_format: str = "ts"
     include_epg: bool = False
+    hidden_tiers: list[str] = field(default_factory=lambda: ["UHD", "FHD"])
 
 
 def settings_path() -> Path:

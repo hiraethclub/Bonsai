@@ -91,3 +91,15 @@ def test_build_entries_keeps_provider_order():
 def test_build_entries_only_selected():
     groups = [(Category("1", "X"), [Channel(1, "a", "1"), Channel(2, "b", "1")])]
     assert [e.name for e in build_entries(groups, {2}, str)] == ["b"]
+
+
+def test_divider_rows_dropped():
+    cats = [Category("1", "Sports")]
+    chans = [
+        Channel(1, "####### SOCCER PPV #######", "1"),
+        Channel(2, "  ### 4K UHD ###", "1"),
+        Channel(3, "Sky Sports #1", "1"),
+        Channel(4, "No. 1 ## Hits", "1"),
+    ]
+    [(_, kept)] = group_channels(cats, chans)
+    assert [c.stream_id for c in kept] == [3, 4]
