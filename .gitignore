@@ -1,0 +1,21 @@
+# Credentials and local state. The real config lives in ~/.config/bonsai/,
+# but never commit a copy that ends up in the project folder by accident.
+config.json
+profiles/
+cache/
+*.cache.json
+
+# Generated playlists (they contain the username and password in every URL)
+*.m3u
+*.m3u8
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Build output
+build/
+dist/
