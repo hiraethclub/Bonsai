@@ -5,6 +5,8 @@
     python -m bonsai categories [--counts]
     python -m bonsai streams [--category ID] [--limit N]
     python -m bonsai export -o FILE --category ID [--category ID ...] [--ext m3u8] [--epg]
+    python -m bonsai profiles
+    python -m bonsai regenerate NAME [-o FILE]
 
 With no command, `python -m bonsai` opens the window instead.
 """
@@ -17,7 +19,10 @@ from collections import Counter
 from datetime import datetime
 
 from . import __version__
+from . import profiles
 from .api import XtreamClient, XtreamError
+from .cache import save_lists
+from .filters import tag_channels
 from .m3u import build_entries, write_m3u
 from .models import group_channels
 from .storage import ConfigError, config_path, ensure_config_template, load_config
@@ -103,6 +108,64 @@ def cmd_export(args: argparse.Namespace) -> None:
     print("Note: the file contains your username and password in every URL.")
 
 
+def cmd_profiles(_args: argparse.Namespace) -> None:
+    names = profiles.list_names()
+    if not names:
+        print("No profiles yet. Save one from the window with \u201cSave as\u2026\u201d.")
+        return
+    for name in names:
+        try:
+            p = profiles.load(name)
+        except profiles.ProfileError as exc:
+            print(f"{name}: {exc}")
+            continue
+        target = p.export_path or "(no export path yet)"
+        print(f"{name}: {len(p.channels)} channels, new channels: {p.new_channels}, exports to {target}")
+
+
+def cmd_regenerate(args: argparse.Namespace) -> None:
+    """Refresh from the server, apply a profile and write its playlist: the Regenerate button."""
+    try:
+        profile = profiles.load(args.name)
+    except profiles.ProfileError as exc:
+        raise ConfigError(str(exc)) from None
+    output = args.output or profile.export_path
+    if not output:
+        raise ConfigError(f"Profile \u201c{profile.name}\u201d has no export path yet; pass -o FILE.")
+    client = _client()
+    cats, chans = client.live_categories(), client.live_streams()
+    try:
+        save_lists(client.server, client.username, cats, chans)
+    except OSError:
+        pass  # the cache is only a convenience
+    groups = group_channels(cats, chans)
+    result = profiles.apply(profile, groups)
+    tags = tag_channels(groups)
+    exportable = {sid for sid in result.ticked if profile.filters.allows(tags.get(sid))}
+    entries = build_entries(groups, exportable, lambda ch: client.stream_url(ch.stream_id, profile.stream_format))
+    write_m3u(output, entries, client.epg_url() if profile.include_epg else None)
+    if output != profile.export_path:
+        profile.export_path = output
+        profiles.save(profile)
+
+    print(f"Wrote {len(entries)} channels to {output}")
+    hidden = len(result.ticked) - len(exportable)
+    if hidden:
+        print(f"  {hidden} ticked channels left out by the profile's filters")
+    if result.rematched:
+        print(f"  {result.rematched} channels found again by name (stream ids changed)")
+    if result.auto_ticked:
+        print(f"  {len(result.auto_ticked)} new channels included automatically")
+    elif result.new:
+        print(f"  {len(result.new)} new channels in your categories (not included; open the app to review)")
+    if result.unmatched:
+        print(f"  {len(result.unmatched)} saved channels no longer found:")
+        for c in result.unmatched[:20]:
+            print(f"    {c.name}  ({c.category})")
+        if len(result.unmatched) > 20:
+            print(f"    ...and {len(result.unmatched) - 20} more")
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="bonsai", description="Bonsai: Xtream live TV playlist trimmer")
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -131,6 +194,13 @@ def build_parser() -> argparse.ArgumentParser:
     pe.add_argument("--ext", choices=("ts", "m3u8"), default="ts", help="stream format (default ts)")
     pe.add_argument("--epg", action="store_true", help="add x-tvg-url to the header")
     pe.set_defaults(func=cmd_export)
+
+    sub.add_parser("profiles", help="list saved profiles").set_defaults(func=cmd_profiles)
+
+    pr = sub.add_parser("regenerate", help="refresh, apply a profile and export its playlist")
+    pr.add_argument("name", help="profile name")
+    pr.add_argument("-o", "--output", metavar="FILE", help="write here instead of the profile's path")
+    pr.set_defaults(func=cmd_regenerate)
     return p
 
 

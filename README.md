@@ -4,7 +4,7 @@ Bonsai trims an Xtream Codes IPTV account's live TV list down to a small `.m3u` 
 
 Bonsai only **reads** from the provider and writes local files. It never changes anything on the provider side, so other devices can keep using the full list. It handles live TV only: no movies, series or VOD.
 
-> Status: milestones 1–4b of 7 (API client, playlist writer, main window, resolution and content filters). Next: profiles and caching.
+> Status: milestones 1–5 of 7 (API client, playlist writer, main window, filters, profiles and caching). Next: the per-channel ffprobe probe.
 
 ## Security warning
 
@@ -106,7 +106,19 @@ These work the same way as the resolution tiers. A ticked box means shown. Hidde
 
 Divider rows such as `####### SOCCER PPV #######` are hidden, because they are headings rather than streams.
 
-Ticks are not saved between runs yet. Profiles arrive in milestone 5.
+### Profiles
+
+A profile, such as "Vita", saves your ticks, filters, format, EPG option and playlist path. Use **Save as…** to create one and **Save** to update it. A `*` in the title bar means unsaved changes, and Bonsai asks before discarding them. The last profile you used opens automatically.
+
+- Each channel is stored by stream id, with its channel and category names as a fallback. If the provider renumbers its streams, channels are found again by name. Any that can't be found at all are listed when the profile loads.
+- **New channels** in a category you ticked from are highlighted in green until you save the profile again. With **New channels: Tick automatically**, new channels in categories that were *fully* ticked when you saved are ticked for you. In partly ticked categories they're only ever highlighted.
+- **Regenerate** downloads the latest list, applies the profile and writes the playlist to the profile's path, all in one step.
+
+Profiles are JSON files in `~/.config/bonsai/profiles/`.
+
+### Saved channel list
+
+The channel list is cached in `~/.cache/bonsai/` (`%LOCALAPPDATA%\bonsai\cache` on Windows), so the app opens without downloading anything. The Account panel shows when the list was fetched. **Refresh from server** fetches it again. The cache holds channel names and ids only, with no credentials or stream URLs.
 
 ## Command line
 
@@ -117,7 +129,11 @@ Ticks are not saved between runs yet. Profiles arrive in milestone 5.
 .venv/bin/python -m bonsai streams --category 123     # channels in one category
 .venv/bin/python -m bonsai streams --limit 0          # every live channel
 .venv/bin/python -m bonsai export -o vita.m3u --category 12 --category 40   # whole categories
+.venv/bin/python -m bonsai profiles                   # list saved profiles
+.venv/bin/python -m bonsai regenerate Vita            # same as the Regenerate button
 ```
+
+`regenerate` works well as a scheduled job (cron or a systemd timer) that keeps the Vita playlist up to date.
 
 `export` also takes `--ext m3u8` and `--epg`.
 

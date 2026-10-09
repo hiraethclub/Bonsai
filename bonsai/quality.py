@@ -40,21 +40,23 @@ _LABELS = {
 # Hidden by default: anything above 720p.
 DEFAULT_HIDDEN_TIERS = frozenset({Tier.UHD, Tier.FHD})
 
-# A token boundary is anything that is not a letter or digit (spaces, |, :, (, [, -, _, + ...).
-_START = r"(?<![^\W_])"
-_END = r"(?![^\W_])"
+# Tags are whole words: a "word" is a run of letters and digits, so "|UK| X (FHD)"
+# splits into uk, x, fhd and "HD" can never match inside "FHD", "UHD" or "HDTV".
+_WORD = re.compile(r"[^\W_]+")
 
-_TAGS: list[tuple[Tier, list[str]]] = [
-    (Tier.UHD, [r"4k", r"uhd", r"2160p", r"3840p", r"3840"]),
-    (Tier.FHD, [r"fhd", r"full[\s_-]*hd", r"1080p", r"1080i", r"1080"]),
-    (Tier.HD, [r"hd", r"720p", r"720"]),
-    (Tier.SD, [r"sd", r"576p", r"576i", r"480p"]),
+_TAGS: list[tuple[Tier, set[str]]] = [
+    (Tier.UHD, {"4k", "uhd", "2160p", "3840p", "3840"}),
+    (Tier.FHD, {"fhd", "fullhd", "1080p", "1080i", "1080"}),
+    (Tier.HD, {"hd", "720p", "720"}),
+    (Tier.SD, {"sd", "576p", "576i", "480p"}),
 ]
+_TIER_OF_WORD = {word: tier for tier, words in _TAGS for word in words}
+_RANK = {tier: i for i, (tier, _) in enumerate(_TAGS)}  # lower is more specific
 
-_PATTERNS = [
-    (tier, re.compile(_START + "(?:" + "|".join(tags) + ")" + _END, re.IGNORECASE))
-    for tier, tags in _TAGS
-]
+
+def words(plain: str) -> list[str]:
+    """Lower-case words of an already normalised name."""
+    return _WORD.findall(plain.lower())
 
 
 @lru_cache(maxsize=4096)
@@ -82,17 +84,34 @@ def normalise_name(name: str) -> str:
     return unicodedata.normalize("NFKC", "".join(out))
 
 
+def tier_from_words(ws: list[str]) -> Tier:
+    best = Tier.UNTAGGED
+    best_rank = len(_TAGS)
+    prev = ""
+    for w in ws:
+        tier = _TIER_OF_WORD.get(w)
+        if tier is Tier.HD and prev == "full":  # "Full HD", "Full-HD"
+            tier = Tier.FHD
+        if tier is not None and _RANK[tier] < best_rank:
+            best, best_rank = tier, _RANK[tier]
+        prev = w
+    return best
+
+
+def tier_from_plain(plain: str) -> Tier:
+    """Tier from a name that has already been through normalise_name()."""
+    return tier_from_words(words(plain))
+
+
 def tier_from_name(name: str) -> Tier:
-    name = normalise_name(name)
-    for tier, pattern in _PATTERNS:
-        if pattern.search(name):
-            return tier
-    return Tier.UNTAGGED
+    return tier_from_plain(normalise_name(name))
 
 
-def classify(channel_name: str, category_tier: Tier = Tier.UNTAGGED) -> tuple[Tier, bool]:
+def classify(
+    channel_name: str, category_tier: Tier = Tier.UNTAGGED, ws: list[str] | None = None
+) -> tuple[Tier, bool]:
     """Tier for a channel, falling back to its category's tag. Returns (tier, inherited)."""
-    tier = tier_from_name(channel_name)
+    tier = tier_from_words(ws if ws is not None else words(normalise_name(channel_name)))
     if tier is Tier.UNTAGGED and category_tier is not Tier.UNTAGGED:
         return category_tier, True
     return tier, False
