@@ -4,7 +4,7 @@ Bonsai trims an Xtream Codes IPTV account's live TV list down to a small `.m3u` 
 
 Bonsai only **reads** from the provider and writes local files. It never changes anything on the provider side, so other devices can keep using the full list. It handles live TV only: no movies, series or VOD.
 
-> Status: milestones 1–4 of 7 (API client, playlist writer, main window, resolution tags). Next: profiles and caching.
+> Status: milestones 1–4b of 7 (API client, playlist writer, main window, resolution and content filters). Next: profiles and caching.
 
 ## Security warning
 
@@ -85,6 +85,24 @@ Tags written in superscript, like `ᴴᴰ` or `ᵁᴴᴰ ³⁸⁴⁰ᴾ`, are re
 UHD and FHD are hidden by default, which gives a 720p maximum. Hidden channels are left out of the export even if they're ticked. Their ticks are remembered, so showing the tier again brings them back. Bonsai remembers which tiers you've hidden.
 
 "HD" is only the provider's label, so it doesn't guarantee 720p; some HD channels are really 1080i. A per-channel probe that measures the actual resolution arrives in milestone 6.
+
+### Content and region filters
+
+These work the same way as the resolution tiers. A ticked box means shown. Hidden channels keep their ticks but are left out of the view and the export. A channel gets a label if its own name or its category's name carries it. The Labels column shows what each channel matched.
+
+| Filter | Matches | Default |
+| --- | --- | --- |
+| PPV / events | `PPV`, "Team vs Team" event slots, "NO EVENT STREAMING" placeholders | hidden |
+| RAW | `RAW`: passed through without re-encoding, often 1080i or high bitrate | shown |
+| HEVC / H.265 | `hevc`, `h265`, `x265` (the PS Vita can't decode HEVC) | hidden |
+| 50/60 fps | `50fps`, `60fps` | shown |
+| 24/7 | `24/7` looping channels | shown |
+| Radio | `radio`, `radyo`, `FM` | hidden |
+| Adult | the provider's `is_adult` flag, `XXX`, `adult` | hidden |
+| VIP / Gold / backup | `VIP`, `GOLD`, `(BK)` alternative or backup feeds | shown |
+| No TV guide | channels without an EPG id; untick to keep only guided channels | shown |
+
+**Regions** come from category prefixes such as `US|` or `UK:`. Use the Regions drop-down to untick regions you never watch. Categories without a prefix are grouped as "Other".
 
 Divider rows such as `####### SOCCER PPV #######` are hidden, because they are headings rather than streams.
 

@@ -100,6 +100,8 @@ class Settings:
     stream_format: str = "ts"
     include_epg: bool = False
     hidden_tiers: list[str] = field(default_factory=lambda: ["UHD", "FHD"])
+    hidden_flags: list[str] = field(default_factory=lambda: ["PPV", "HEVC", "RADIO", "ADULT"])
+    hidden_regions: list[str] = field(default_factory=list)
 
 
 def settings_path() -> Path:

@@ -181,3 +181,56 @@ def test_superscript_category_tag_inherited_and_searchable():
     assert m.rowCount() == 1
     m.set_filter("fox sd")
     assert m.visible_channel_count() == 1
+
+
+def test_label_and_region_filters():
+    from bonsai.filters import Flag
+    from bonsai.ui.channel_tree import COL_LABELS
+
+    m = ChannelTreeModel()
+    m.set_hidden_tiers(set())
+    m.set_hidden_flags(set())
+    m.set_groups(
+        [
+            (Category("1", "US| NEWS ᴿᴬᵂ"), [Channel(1, "CNN", "1", epg_channel_id="cnn.us"),
+                                           Channel(2, "Fox", "1")]),
+            (Category("2", "US| NBA PPV"), [Channel(3, "Lakers vs Celtics", "2")]),
+            (Category("3", "UK: GENERAL"), [Channel(4, "BBC One", "3", epg_channel_id="bbc1")]),
+        ]
+    )
+    assert m.data(m.index(0, COL_LABELS)) == "RAW"
+    assert m.data(m.index(0, COL_LABELS, m.index(0, 0))) == "RAW"
+    assert m.flag_counts()[Flag.RAW] == 2
+    assert m.flag_counts()[Flag.NO_EPG] == 2
+    assert dict(m.region_counts()) == {"US": 3, "UK": 1}
+
+    tick(m, m.index(0, 0))
+    tick(m, m.index(1, 0))
+    tick(m, m.index(2, 0))
+    assert m.ticked_ids() == {1, 2, 3, 4}
+
+    m.set_hidden_flags({Flag.PPV})
+    assert m.rowCount() == 2
+    assert m.ticked_ids() == {1, 2, 4}
+
+    m.set_hidden_flags({Flag.PPV, Flag.NO_EPG})
+    assert m.ticked_ids() == {1, 4}
+
+    m.set_hidden_regions({"UK"})
+    assert m.ticked_ids() == {1}
+    assert m.rowCount() == 1
+    assert m.hidden_ticked_count() == 3
+
+    m.set_hidden_flags(set())
+    m.set_hidden_regions(set())
+    assert m.ticked_ids() == {1, 2, 3, 4}
+
+
+def test_adult_flag_from_api_field():
+    from bonsai.filters import Flag
+
+    m = ChannelTreeModel()
+    m.set_groups([(Category("9", "Movies"), [Channel(1, "Late Film", "9", is_adult=True),
+                                             Channel(2, "Day Film", "9")])])
+    assert m.flags_of(1) >= {Flag.ADULT}
+    assert m.visible_channel_count() == 1  # adult hidden by default

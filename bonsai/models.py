@@ -53,6 +53,7 @@ class Channel:
     icon: str = ""
     epg_channel_id: str = ""
     added: datetime | None = None
+    is_adult: bool = False
 
     @classmethod
     def from_api(cls, data: dict[str, Any]) -> Channel | None:
@@ -73,6 +74,7 @@ class Channel:
             icon=_to_str(data.get("stream_icon")),
             epg_channel_id=_to_str(data.get("epg_channel_id")),
             added=_to_datetime(data.get("added")),
+            is_adult=_to_str(data.get("is_adult")) in ("1", "true", "True"),
         )
 
 
