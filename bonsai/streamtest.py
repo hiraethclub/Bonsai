@@ -16,9 +16,12 @@ one, otherwise VitaIPTV's User-Agent.
 from __future__ import annotations
 
 import json
+import os
 import random
 import re
+import shutil
 import subprocess
+import sys
 import threading
 from collections import defaultdict, deque
 from collections.abc import Callable, Iterable
@@ -433,7 +436,33 @@ def _fps(stream: dict) -> float:
     return 0.0
 
 
-def run_ffprobe(url: str, req: StreamRequest, ffprobe: str = "ffprobe", redact=lambda s: s) -> tuple[list[dict], str]:
+FFPROBE_HELP = (
+    "Download FFmpeg (e.g. from gyan.dev or with: winget install Gyan.FFmpeg) and put ffprobe.exe "
+    "next to Bonsai.exe or on your PATH."
+    if sys.platform == "win32"
+    else "On Debian: sudo apt install ffmpeg"
+)
+
+
+def find_ffprobe() -> str | None:
+    """ffprobe on PATH, or next to the program (handy for the packaged Windows app)."""
+    found = shutil.which("ffprobe")
+    if found:
+        return found
+    exe_dir = os.path.dirname(sys.executable if getattr(sys, "frozen", False) else os.path.abspath(sys.argv[0] or "."))
+    for name in ("ffprobe.exe", "ffprobe"):
+        candidate = os.path.join(exe_dir, name)
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+# Keep a console window from flashing up for every probe in the windowed Windows app.
+_NO_WINDOW = {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}
+
+
+def run_ffprobe(url: str, req: StreamRequest, ffprobe: str = "", redact=lambda s: s) -> tuple[list[dict], str]:
+    ffprobe = ffprobe or find_ffprobe() or "ffprobe"
     cmd = [ffprobe, "-v", "error", "-of", "json", "-rw_timeout", "10000000",
            "-analyzeduration", "6000000", "-probesize", "6000000",
            "-show_entries", "stream=codec_type,codec_name,pix_fmt,width,height,field_order,avg_frame_rate,r_frame_rate",
@@ -441,9 +470,10 @@ def run_ffprobe(url: str, req: StreamRequest, ffprobe: str = "ffprobe", redact=l
     if req.referrer:
         cmd += ["-headers", f"Referer: {req.referrer}\r\n"]
     try:
-        p = subprocess.run(cmd + [url], capture_output=True, text=True, timeout=DEEP_TIMEOUT)
+        p = subprocess.run(cmd + [url], capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           timeout=DEEP_TIMEOUT, **_NO_WINDOW)
     except FileNotFoundError:
-        return [], "ffprobe is not installed (Debian: sudo apt install ffmpeg)"
+        return [], f"ffprobe is not installed. {FFPROBE_HELP}"
     except subprocess.TimeoutExpired:
         return [], "ffprobe timed out"
     err = [redact(line.replace(url, "<stream>")) for line in p.stderr.strip().splitlines()]
@@ -455,7 +485,7 @@ def run_ffprobe(url: str, req: StreamRequest, ffprobe: str = "ffprobe", redact=l
 
 
 def deep_test(req: StreamRequest, session: requests.Session | None = None, xtream: bool = False,
-              ffprobe: str = "ffprobe", redact=lambda s: s) -> TestResult:
+              ffprobe: str = "", redact=lambda s: s) -> TestResult:
     analysis = _analyse(req, session or requests.Session(), xtream)
     result = analysis.result
     result.mode, result.at = DEEP, _now()

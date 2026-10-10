@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -44,7 +43,18 @@ from ..playlist import IPTV_ORG, is_url, load_playlist
 from ..profiles import NEW_HIGHLIGHT, NEW_INCLUDE, ApplyResult, Profile, ProfileError
 from ..quality import parse_tiers
 from ..results import NOT_WORKING, load_results, result_key, save_results
-from ..streamtest import DEEP, QUICK, TestJob, TestResult, deep_test, estimate_seconds, quick_test, request_for
+from ..streamtest import (
+    DEEP,
+    FFPROBE_HELP,
+    QUICK,
+    TestJob,
+    TestResult,
+    deep_test,
+    estimate_seconds,
+    find_ffprobe,
+    quick_test,
+    request_for,
+)
 from ..sources import PLAYLIST, Source, playlist_epg_url
 from ..storage import (
     Config,
@@ -1146,8 +1156,8 @@ class MainWindow(QMainWindow):
         if self.source is None:
             QMessageBox.information(self, "Stream test", "Load a channel list first.")
             return
-        if mode == DEEP and shutil.which("ffprobe") is None:
-            QMessageBox.warning(self, "Stream test", "The deep test needs ffprobe. On Debian: sudo apt install ffmpeg")
+        if mode == DEEP and find_ffprobe() is None:
+            QMessageBox.warning(self, "Stream test", f"The deep test needs ffprobe (part of FFmpeg).\n\n{FFPROBE_HELP}")
             return
         channels = self._channels_for(scope)
         if not channels:

@@ -176,6 +176,17 @@ The channel list is cached in `~/.cache/bonsai/` (`%LOCALAPPDATA%\bonsai\cache` 
 
 `export` also takes `--ext m3u8` and `--epg`.
 
+## Windows
+
+A Windows build of the app, `Bonsai.exe`, is made automatically by GitHub Actions on every push to `main`. Open the repository's **Actions** tab, choose the latest **Build** run, and download **Bonsai-windows** under *Artifacts* (you need to be signed in to GitHub). The download is a zip containing `Bonsai.exe`, a single file with no installer.
+
+- Windows SmartScreen will warn that the app is from an unknown publisher, because it isn't code-signed. Choose *More info → Run anyway*.
+- Settings and profiles live in `%APPDATA%\bonsai\`, and the saved lists and test results in `%LOCALAPPDATA%\bonsai\cache\`.
+- The **deep test** needs `ffprobe.exe` from [FFmpeg](https://www.gyan.dev/ffmpeg/builds/) (or `winget install Gyan.FFmpeg`). Put it next to `Bonsai.exe` or on your PATH. The quick test needs nothing extra.
+- The command line tools aren't part of the `.exe`. Run them from source with `python -m bonsai …`.
+
+To build it yourself on Windows: `pip install -r requirements.txt -r packaging/requirements-build.txt`, then `pyinstaller --onefile --windowed --name Bonsai --paths . packaging/bonsai_app.py`. A Windows `.exe` can only be built on Windows.
+
 ## Tests
 
 ```bash
