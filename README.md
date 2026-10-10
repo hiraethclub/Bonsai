@@ -5,7 +5,9 @@ Bonsai trims a big IPTV channel list down to a small `.m3u` playlist for low spe
 - **An Xtream Codes account.** The trimmed playlist still plays through the same account. Bonsai only **reads** from the provider and writes local files, never changing anything on the provider side, so other devices can keep using the full list. Live TV only: no movies, series or VOD.
 - **Any M3U playlist**, from a link or a file, such as the public [iptv-org](https://github.com/iptv-org/iptv) lists.
 
-> Status: all 8 milestones done (API client, playlist writer, main window, filters, profiles and caching, M3U import, stream testing, Windows and Linux builds).
+![Bonsai on Windows, with the About box open](docs/screenshot.png)
+
+**Download:** the latest version for Windows and Linux is on the [Releases page](https://github.com/hiraethclub/Bonsai/releases/latest).
 
 ## Security warning
 
@@ -178,13 +180,13 @@ The channel list is cached in `~/.cache/bonsai/` (`%LOCALAPPDATA%\bonsai\cache` 
 
 ## Ready-made builds (Windows and Linux)
 
-GitHub Actions builds the app on every push to `main`. Open the repository's **Actions** tab, choose the latest **Build** run, and download one of these under *Artifacts* (you need to be signed in to GitHub):
+Released versions are on the [Releases page](https://github.com/hiraethclub/Bonsai/releases):
 
-- **Bonsai-windows**: a zip containing `Bonsai.exe`, a single file with no installer.
-- **Bonsai-linux**: a zip containing `Bonsai-linux-x86_64.tar.gz`, a single executable. It is built on Ubuntu 22.04, so it runs on any x86-64 distribution with glibc 2.35 or newer (Debian 12 and 13, Ubuntu 22.04+). Unpack and run it:
+- **`Bonsai-<version>-windows-x64.exe`**: a single file with no installer.
+- **`Bonsai-<version>-linux-x86_64.tar.gz`**: a single executable, plus a `.desktop` file and an icon. It is built on Ubuntu 22.04, so it runs on any x86-64 distribution with glibc 2.35 or newer (Debian 12 and 13, Ubuntu 22.04+). Unpack and run it:
 
   ```bash
-  tar -xzf Bonsai-linux-x86_64.tar.gz && ./Bonsai
+  tar -xzf Bonsai-*-linux-x86_64.tar.gz && ./Bonsai
   ```
 
   If Qt complains about the "xcb" platform plugin, install `libxcb-cursor0` (`sudo apt install libxcb-cursor0`).
@@ -198,6 +200,10 @@ GitHub Actions builds the app on every push to `main`. Open the repository's **A
   ```
 
 Both builds keep their settings in the same places as the source version.
+
+Development builds of every push to `main` are on the **Actions** tab: open the latest **Build** run and download **Bonsai-windows** or **Bonsai-linux** under *Artifacts* (you need to be signed in to GitHub).
+
+**Making a release:** set `__version__` in `bonsai/__init__.py`, commit, then push a matching tag, for example `git tag v1.0.0 && git push origin v1.0.0`. GitHub builds both versions and attaches them to a draft release. Review the draft, then publish it.
 
 ### Windows notes
 
