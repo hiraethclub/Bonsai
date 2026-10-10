@@ -17,11 +17,12 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Iterable
+from urllib.parse import urlsplit
 
 from PySide6.QtCore import QAbstractItemModel, QModelIndex, Qt, Signal
 from PySide6.QtGui import QColor, QFont
 
-from ..filters import ChannelTags, FilterState, Flag, flags_from_name, region_of, tag_channels
+from ..filters import ChannelTags, FilterState, Flag, flags_from_name, tag_channels
 from ..models import Category, Channel
 from ..quality import Tier, normalise_name, tier_from_name
 
@@ -33,7 +34,7 @@ NEW_BACKGROUND = QColor(76, 175, 80, 70)
 
 
 class _CatNode:
-    __slots__ = ("cat", "key", "tier", "flags", "region", "channels", "shown", "visible", "row",
+    __slots__ = ("cat", "key", "tier", "flags", "channels", "shown", "visible", "row",
                  "ticked", "new", "child_ref")
 
     def __init__(self, cat: Category, channels: list[Channel]) -> None:
@@ -41,7 +42,6 @@ class _CatNode:
         self.key = normalise_name(cat.name).casefold()  # for searching
         self.tier = tier_from_name(cat.name)
         self.flags = frozenset(flags_from_name(cat.name))
-        self.region = region_of(cat.name)
         self.channels = channels  # everything the provider lists
         self.shown = channels  # not hidden by the tier/label/region filters
         self.visible = channels  # shown and matching the search
@@ -84,6 +84,7 @@ class ChannelTreeModel(QAbstractItemModel):
         self._new: set[int] = set()
         self._state = FilterState()
         self._filter = ""
+        self.playlist_mode = False  # playlist sources show the stream's server instead of an id
         self._bold = QFont()
         self._bold.setBold(True)
         self._italic = QFont()
@@ -95,6 +96,7 @@ class ChannelTreeModel(QAbstractItemModel):
         """Replace the contents. Ticks on channels that still exist are kept."""
         self.beginResetModel()
         self._groups = [_CatNode(cat, list(chans)) for cat, chans in groups if chans]
+        self.playlist_mode = any(ch.url for n in self._groups[:1] for ch in n.channels[:1])
         self._node_of = {ch.stream_id: n for n in self._groups for ch in n.channels}
         self._tags = tag_channels([(n.cat, n.channels) for n in self._groups])
         self._key = {ch.stream_id: normalise_name(ch.name).casefold() for n in self._groups for ch in n.channels}
@@ -136,12 +138,8 @@ class ChannelTreeModel(QAbstractItemModel):
 
     def _refilter(self) -> None:
         allows, tags = self._state.allows, self._tags
-        hidden_regions = self._state.hidden_regions
         for node in self._groups:
-            if node.region in hidden_regions:
-                node.shown = []
-            else:
-                node.shown = [ch for ch in node.channels if allows(tags[ch.stream_id])]
+            node.shown = [ch for ch in node.channels if allows(tags[ch.stream_id])]
             node.ticked = sum(1 for ch in node.shown if ch.stream_id in self._ticked)
             node.new = sum(1 for ch in node.shown if ch.stream_id in self._new)
         self._apply_search()
@@ -212,10 +210,7 @@ class ChannelTreeModel(QAbstractItemModel):
         return counts
 
     def region_counts(self) -> Counter[str]:
-        counts: Counter[str] = Counter()
-        for node in self._groups:
-            counts[node.region] += len(node.channels)
-        return counts
+        return Counter(t.region for t in self._tags.values())
 
     def total_channels(self) -> int:
         return len(self._node_of)
@@ -342,6 +337,8 @@ class ChannelTreeModel(QAbstractItemModel):
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
         if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
+            if section == COL_ID and self.playlist_mode:
+                return "Server"
             return HEADERS[section]
         return None
 
@@ -374,9 +371,11 @@ class ChannelTreeModel(QAbstractItemModel):
                 text = _labels(tags.flags) if tags else ""
                 return f"NEW {text}".strip() if is_new else text
             if col == COL_ID:
-                return str(sid)
+                return urlsplit(ch.url).netloc if ch.url else str(sid)
         elif role == Qt.ItemDataRole.CheckStateRole and col == COL_NAME:
             return Qt.CheckState.Checked if sid in self._ticked else Qt.CheckState.Unchecked
+        elif role == Qt.ItemDataRole.ToolTipRole and col == COL_ID and ch.url:
+            return ch.url
         elif role == Qt.ItemDataRole.BackgroundRole and is_new:
             return NEW_BACKGROUND
         elif role == Qt.ItemDataRole.FontRole and col == COL_TIER and tags and tags.tier_inherited:

@@ -173,10 +173,15 @@ class FilterPanel(QGroupBox):
         return self.regions.hidden()
 
     def update_counts(self, tiers: Counter, flags: Counter, regions: Counter) -> None:
+        loaded = bool(tiers)
+        # Once a list is loaded, boxes that match nothing in it are hidden: an iptv-org list
+        # has no PPV or VIP channels, an Xtream list has no geo-blocked ones.
         for tier, box in self.tier_checks.items():
-            box.setText(f"{tier.label} ({tiers[tier]})" if tiers else tier.label)
+            box.setText(f"{tier.label} ({tiers[tier]})" if loaded else tier.label)
+            box.setVisible(not loaded or tiers[tier] > 0)
         for flag, box in self.flag_checks.items():
-            box.setText(f"{flag.label} ({flags[flag]})" if tiers else flag.label)
+            box.setText(f"{flag.label} ({flags[flag]})" if loaded else flag.label)
+            box.setVisible(not loaded or flags[flag] > 0)
         for box in (*self.tier_checks.values(), *self.flag_checks.values()):
             box.updateGeometry()
         self.regions.set_regions(regions, self.regions.hidden())

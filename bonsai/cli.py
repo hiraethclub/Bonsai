@@ -21,8 +21,10 @@ from datetime import datetime
 from . import __version__
 from . import profiles
 from .api import XtreamClient, XtreamError
-from .cache import save_lists
+from .cache import playlist_key, save_lists, xtream_key
 from .filters import tag_channels
+from .playlist import PlaylistError, load_playlist
+from .sources import playlist_epg_url
 from .m3u import build_entries, write_m3u
 from .models import group_channels
 from .storage import ConfigError, config_path, ensure_config_template, load_config
@@ -120,7 +122,8 @@ def cmd_profiles(_args: argparse.Namespace) -> None:
             print(f"{name}: {exc}")
             continue
         target = p.export_path or "(no export path yet)"
-        print(f"{name}: {len(p.channels)} channels, new channels: {p.new_channels}, exports to {target}")
+        print(f"{name} [{p.source.label()}]: {len(p.channels)} channels, new channels: {p.new_channels}, "
+              f"exports to {target}")
 
 
 def cmd_regenerate(args: argparse.Namespace) -> None:
@@ -132,18 +135,33 @@ def cmd_regenerate(args: argparse.Namespace) -> None:
     output = args.output or profile.export_path
     if not output:
         raise ConfigError(f"Profile \u201c{profile.name}\u201d has no export path yet; pass -o FILE.")
-    client = _client()
-    cats, chans = client.live_categories(), client.live_streams()
-    try:
-        save_lists(client.server, client.username, cats, chans)
-    except OSError:
-        pass  # the cache is only a convenience
+    if profile.source.is_playlist:
+        location = profile.source.location
+        try:
+            cats, chans, header = load_playlist(location)
+        except PlaylistError as exc:
+            raise ConfigError(str(exc)) from None
+        try:
+            save_lists(playlist_key(location), cats, chans, header)
+        except OSError:
+            pass
+        url_for = lambda ch: ch.url  # noqa: E731
+        epg = playlist_epg_url(header) if profile.include_epg else None
+    else:
+        client = _client()
+        cats, chans = client.live_categories(), client.live_streams()
+        try:
+            save_lists(xtream_key(client.server, client.username), cats, chans)
+        except OSError:
+            pass  # the cache is only a convenience
+        url_for = lambda ch: client.stream_url(ch.stream_id, profile.stream_format)  # noqa: E731
+        epg = client.epg_url() if profile.include_epg else None
     groups = group_channels(cats, chans)
     result = profiles.apply(profile, groups)
     tags = tag_channels(groups)
     exportable = {sid for sid in result.ticked if profile.filters.allows(tags.get(sid))}
-    entries = build_entries(groups, exportable, lambda ch: client.stream_url(ch.stream_id, profile.stream_format))
-    write_m3u(output, entries, client.epg_url() if profile.include_epg else None)
+    entries = build_entries(groups, exportable, url_for)
+    write_m3u(output, entries, epg or None)
     if output != profile.export_path:
         profile.export_path = output
         profiles.save(profile)

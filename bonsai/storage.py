@@ -123,9 +123,12 @@ class Settings:
     stream_format: str = "ts"
     include_epg: bool = False
     hidden_tiers: list[str] = field(default_factory=lambda: ["UHD", "FHD"])
-    hidden_flags: list[str] = field(default_factory=lambda: ["PPV", "HEVC", "RADIO", "ADULT"])
+    hidden_flags: list[str] = field(
+        default_factory=lambda: ["PPV", "HEVC", "RADIO", "ADULT", "INTERLACED", "FORMAT"]
+    )
     hidden_regions: list[str] = field(default_factory=list)
     last_profile: str = ""
+    last_source: dict = field(default_factory=dict)  # {"kind": "m3u", "location": ...} or Xtream
 
 
 def settings_path() -> Path:

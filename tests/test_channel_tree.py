@@ -234,3 +234,14 @@ def test_adult_flag_from_api_field():
                                              Channel(2, "Day Film", "9")])])
     assert m.flags_of(1) >= {Flag.ADULT}
     assert m.visible_channel_count() == 1  # adult hidden by default
+
+
+def test_playlist_mode_shows_server():
+    from bonsai.ui.channel_tree import COL_ID
+
+    m = ChannelTreeModel()
+    m.set_hidden_tiers(set())
+    m.set_groups([(Category("News", "News"), [Channel(123456789, "X", "News", url="https://cdn.example.com/x.m3u8")])])
+    assert m.playlist_mode
+    assert m.headerData(COL_ID, Qt.Orientation.Horizontal) == "Server"
+    assert m.data(m.index(0, COL_ID, m.index(0, 0))) == "cdn.example.com"

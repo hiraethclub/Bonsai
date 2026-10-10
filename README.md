@@ -1,10 +1,11 @@
 # Bonsai
 
-Bonsai trims an Xtream Codes IPTV account's live TV list down to a small `.m3u` playlist for low spec clients, such as a PS Vita. The trimmed playlist still plays through the same account.
+Bonsai trims a big IPTV channel list down to a small `.m3u` playlist for low spec clients, such as a PS Vita. It works with two kinds of source:
 
-Bonsai only **reads** from the provider and writes local files. It never changes anything on the provider side, so other devices can keep using the full list. It handles live TV only: no movies, series or VOD.
+- **An Xtream Codes account.** The trimmed playlist still plays through the same account. Bonsai only **reads** from the provider and writes local files, never changing anything on the provider side, so other devices can keep using the full list. Live TV only: no movies, series or VOD.
+- **Any M3U playlist**, from a link or a file, such as the public [iptv-org](https://github.com/iptv-org/iptv) lists.
 
-> Status: milestones 1–5 of 7 (API client, playlist writer, main window, filters, profiles and caching). Next: the per-channel ffprobe probe.
+> Status: milestones 1–6 of 8 (API client, playlist writer, main window, filters, profiles and caching, M3U import). Next: stream testing.
 
 ## Security warning
 
@@ -22,7 +23,7 @@ Your server, username and password are stored in a local config file, readable o
 
 Credentials are never hard coded and never stored in the project folder.
 
-Bonsai makes no network calls except to your IPTV server, and sends no telemetry.
+Bonsai sends no telemetry. It only contacts your IPTV server, the playlist links you load and, when you test streams (milestone 7), the servers in that list. Channel logos are never downloaded.
 
 ## Setup (Debian 13)
 
@@ -66,6 +67,17 @@ Then edit the file it prints the path of:
 3. Right-click (or press Ctrl+T / Ctrl+U) to tick or untick every selected row at once.
 4. Choose the format (`ts`, or `m3u8` if the account allows it) and whether to include the EPG URL, then click **Export playlist…**.
 
+### M3U playlists (iptv-org and others)
+
+On the **M3U playlist** tab, paste a link, use **Browse…** for a file, or pick one of the **iptv-org** lists (all channels, or grouped by category, country or language). Everything else works as it does for Xtream: ticking, search, filters, profiles, Regenerate and export.
+
+- Each `group-title` becomes a category. A stream listed in several groups (`group-title="Animation;Kids"`) appears in each one, but it is written to the playlist only once.
+- Streams that need a particular User-Agent or Referer keep those settings on export (`http-user-agent`/`http-referrer` attributes and `#EXTVLCOPT` lines).
+- **Include EPG URL** keeps the playlist's own guide link. The Format option doesn't apply, because streams keep their own addresses.
+- The **Server** column shows which host each stream comes from.
+- Profiles remember which source they belong to, and choosing one switches to that list.
+- Playlist links are cached like the Xtream list. Files are read fresh each time.
+
 ### Resolution filter
 
 The provider doesn't report resolutions, so Bonsai reads quality tags from channel names. A tag only counts as a whole word, so `HD` never matches inside `FHD`, `UHD` or `HDTV`. The tiers, most specific first:
@@ -78,7 +90,9 @@ The provider doesn't report resolutions, so Bonsai reads quality tags from chann
 | SD | `SD`, `576p`, `576i`, `480p` |
 | Untagged | none of the above |
 
-Tags written in superscript, like `ᴴᴰ` or `ᵁᴴᴰ ³⁸⁴⁰ᴾ`, are read as plain text, and the search box matches them too: typing `raw` finds `ᴿᴬᵂ`. A channel with no tag of its own takes the tier from its category's name. These inherited tiers appear in *italics* in the Tier column.
+Any other height also counts toward the right tier: `(540p)` and `(396p)` are SD, `(900p)` is FHD.
+
+Tags written in superscript or small capitals, like `ᴴᴰ`, `ᵁᴴᴰ ³⁸⁴⁰ᴾ` or `ʜᴅ`, are read as plain text, and the search box matches them too: typing `raw` finds `ᴿᴬᵂ`. A channel with no tag of its own takes the tier from its category's name. These inherited tiers appear in *italics* in the Tier column.
 
 `8K` is deliberately not treated as a resolution, because providers use it as a brand ("8K EXCLUSIVE").
 
@@ -101,8 +115,14 @@ These work the same way as the resolution tiers. A ticked box means shown. Hidde
 | Adult | the provider's `is_adult` flag, `XXX`, `adult` | hidden |
 | VIP / Gold / backup | `VIP`, `GOLD`, `(BK)` alternative or backup feeds | shown |
 | No TV guide | channels without an EPG id; untick to keep only guided channels | shown |
+| Geo-blocked | `[Geo-blocked]` | shown |
+| Not 24/7 | `[Not 24/7]` | shown |
+| Interlaced | `(576i)`, `(1080i)`: VitaIPTV can't play interlaced video | hidden |
+| DASH / RTMP / other | `.mpd` links and `rtmp://`, `mmsh://`, `srt://`…: VitaIPTV only plays TS and HLS | hidden |
 
-**Regions** come from category prefixes such as `US|` or `UK:`. Use the Regions drop-down to untick regions you never watch. Categories without a prefix are grouped as "Other".
+Boxes that match nothing in the loaded list are hidden.
+
+**Regions** come from category prefixes such as `US|` or `UK:`, or otherwise from the country code in a channel's `tvg-id` (`BBCOne.uk` is UK). Use the Regions drop-down to untick regions you never watch. Categories without a prefix are grouped as "Other".
 
 Divider rows such as `####### SOCCER PPV #######` are hidden, because they are headings rather than streams.
 

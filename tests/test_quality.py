@@ -109,3 +109,28 @@ def test_category_fallback():
     assert classify("BBC News", Tier.HD) == (Tier.HD, True)
     assert classify("BBC News ˢᴰ", Tier.HD) == (Tier.SD, False)  # own tag wins
     assert classify("BBC News", Tier.UNTAGGED) == (Tier.UNTAGGED, False)
+
+
+@pytest.mark.parametrize(
+    "name, tier",
+    [
+        ("1+1 International HD (720p)", Tier.HD),
+        ("1+1 Marafon (1080p)", Tier.FHD),
+        ("Akaal Channel (396p) [Geo-blocked]", Tier.SD),
+        ("Some TV (540p)", Tier.SD),
+        ("Some TV (576i)", Tier.SD),
+        ("Some TV (900p)", Tier.FHD),
+        ("Some TV (2160p)", Tier.UHD),
+        ("GOLD: EUROSPORT 2 ʜᴅ", Tier.HD),  # small capitals
+        ("Channel 100", Tier.UNTAGGED),  # bare number, no p/i
+    ],
+)
+def test_heights_and_small_caps(name, tier):
+    assert tier_from_name(name) == tier
+
+
+def test_small_caps_normalised():
+    from bonsai.quality import normalise_name
+
+    assert normalise_name("EXXEN SPORTS 7 ʜᴅ") == "EXXEN SPORTS 7 HD"
+    assert normalise_name("TVʜᴅ") == "TV HD"

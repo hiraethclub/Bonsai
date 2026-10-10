@@ -25,6 +25,10 @@ class Flag(str, Enum):
     ADULT = "ADULT"
     VARIANT = "VARIANT"
     NO_EPG = "NO_EPG"
+    GEO = "GEO"
+    PART_TIME = "NOT_247"
+    INTERLACED = "INTERLACED"
+    FORMAT = "FORMAT"
 
     @property
     def label(self) -> str:
@@ -45,6 +49,10 @@ _LABELS = {
     Flag.ADULT: "Adult",
     Flag.VARIANT: "VIP / Gold / backup",
     Flag.NO_EPG: "No TV guide",
+    Flag.GEO: "Geo-blocked",
+    Flag.PART_TIME: "Not 24/7",
+    Flag.INTERLACED: "Interlaced",
+    Flag.FORMAT: "DASH / RTMP / other",
 }
 
 # Shown in the Labels column; NO_EPG is left out there because it would be on most rows.
@@ -58,6 +66,10 @@ _SHORT = {
     Flag.ADULT: "Adult",
     Flag.VARIANT: "VIP",
     Flag.NO_EPG: "",
+    Flag.GEO: "Geo",
+    Flag.PART_TIME: "Part-time",
+    Flag.INTERLACED: "i",
+    Flag.FORMAT: "DASH/other",
 }
 
 _TOOLTIPS = {
@@ -73,6 +85,10 @@ _TOOLTIPS = {
     Flag.VARIANT: "Channels labelled VIP, GOLD or (BK). Usually alternative or backup feeds "
     "of channels that also exist without the label.",
     Flag.NO_EPG: "Channels with no TV guide id. Untick to keep only channels with a guide.",
+    Flag.GEO: "Marked [Geo-blocked]: only plays from certain countries.",
+    Flag.PART_TIME: "Marked [Not 24/7]: only on air some of the time.",
+    Flag.INTERLACED: "Tagged as interlaced, e.g. (576i) or (1080i). VitaIPTV cannot play interlaced video.",
+    Flag.FORMAT: "Not MPEG-TS or HLS: DASH (.mpd), RTMP, MMS, SRT... VitaIPTV only plays TS and HLS.",
 }
 
 
@@ -81,7 +97,7 @@ def flag_tooltip(flag: Flag) -> str:
 
 
 # Hidden by default: things a Vita playlist almost never wants.
-DEFAULT_HIDDEN_FLAGS = frozenset({Flag.PPV, Flag.HEVC, Flag.RADIO, Flag.ADULT})
+DEFAULT_HIDDEN_FLAGS = frozenset({Flag.PPV, Flag.HEVC, Flag.RADIO, Flag.ADULT, Flag.INTERLACED, Flag.FORMAT})
 
 # Single-word labels, matched against the lower-case words of a name (see quality.words).
 _FLAG_OF_WORD: dict[str, Flag] = {
@@ -95,12 +111,15 @@ _FLAG_OF_WORD: dict[str, Flag] = {
 }
 # Two-word labels: "H.265", "50 fps".
 _FLAG_OF_PAIR: dict[tuple[str, str], Flag] = {
+    ("geo", "blocked"): Flag.GEO,
     ("h", "265"): Flag.HEVC,
     ("50", "fps"): Flag.HIGH_FPS,
     ("60", "fps"): Flag.HIGH_FPS,
 }
 # Labels that depend on punctuation, checked only when a cheap substring test passes.
 _LOOP_247 = re.compile(r"(?<!\d)24\s*[/-]\s*7(?!\d)")
+_NOT_247 = re.compile(r"not\s*24\s*[/-]?\s*7")
+_INTERLACED_WORD = re.compile(r"^\d{3,4}i$")
 _ADULT_18 = re.compile(r"(?<!\d)18\+")
 _EVENT_VS = re.compile(r"\svs\.?\s")
 
@@ -112,10 +131,15 @@ def _flags_from(plain: str, ws: list[str]) -> set[Flag]:
         flag = _FLAG_OF_WORD.get(w) or _FLAG_OF_PAIR.get((prev, w))
         if flag is not None:
             flags.add(flag)
+        elif w[-1] == "i" and _INTERLACED_WORD.match(w):
+            flags.add(Flag.INTERLACED)
         prev = w
     lower = plain.lower()
-    if "24" in lower and _LOOP_247.search(lower):
-        flags.add(Flag.LOOP_247)
+    if "24" in lower:
+        if "not" in lower and _NOT_247.search(lower):
+            flags.add(Flag.PART_TIME)
+        elif _LOOP_247.search(lower):
+            flags.add(Flag.LOOP_247)
     if "18+" in lower and _ADULT_18.search(lower):
         flags.add(Flag.ADULT)
     if "(bk)" in lower:
@@ -135,6 +159,7 @@ def channel_flags(
     is_adult: bool = False,
     plain: str | None = None,
     ws: list[str] | None = None,
+    url: str = "",
 ) -> frozenset[Flag]:
     if plain is None:
         plain = normalise_name(name)
@@ -142,6 +167,8 @@ def channel_flags(
     lower = plain.lower()
     if ("vs" in lower and _EVENT_VS.search(lower)) or "no event streaming" in lower:
         flags.add(Flag.PPV)
+    if url and _unsupported_format(url):
+        flags.add(Flag.FORMAT)
     if is_adult:
         flags.add(Flag.ADULT)
     if not has_epg:
@@ -149,7 +176,22 @@ def channel_flags(
     return frozenset(flags)
 
 
+def _unsupported_format(url: str) -> bool:
+    lower = url.lower()
+    if not lower.startswith(("http://", "https://")):
+        return True  # rtmp://, mmsh://, srt://, udp://, ...
+    path = lower.split("?", 1)[0].split("#", 1)[0]
+    return path.endswith(".mpd")
+
+
 OTHER_REGION = "Other"
+_COUNTRY_IN_ID = re.compile(r"\.([a-z]{2})(?:@|$)", re.IGNORECASE)
+
+
+def region_from_epg_id(epg_id: str) -> str:
+    """Country code from a guide id such as 'BBCOne.uk' or 'AfghanistanInternational.uk@SD'."""
+    m = _COUNTRY_IN_ID.search(epg_id)
+    return m.group(1).upper() if m else ""
 _REGION = re.compile(r"\s*([A-Za-z0-9]{2,4})\s*[|:]")
 
 
@@ -191,8 +233,11 @@ def tag_channels(groups: list[tuple[Category, list[Channel]]]) -> dict[int, Chan
             plain = normalise_name(ch.name)
             ws = words(plain)
             tier, inherited = classify(ch.name, cat_tier, ws)
-            flags = channel_flags(ch.name, cat_flags, bool(ch.epg_channel_id), ch.is_adult, plain, ws)
-            tags[ch.stream_id] = ChannelTags(tier, inherited, flags, region)
+            flags = channel_flags(ch.name, cat_flags, bool(ch.epg_channel_id), ch.is_adult, plain, ws, ch.url)
+            ch_region = region
+            if region == OTHER_REGION and ch.epg_channel_id:
+                ch_region = region_from_epg_id(ch.epg_channel_id) or OTHER_REGION
+            tags[ch.stream_id] = ChannelTags(tier, inherited, flags, ch_region)
     return tags
 
 

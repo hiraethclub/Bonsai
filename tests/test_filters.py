@@ -78,5 +78,49 @@ def test_region_of(category, region):
 
 
 def test_defaults_and_parse():
-    assert DEFAULT_HIDDEN_FLAGS == {Flag.PPV, Flag.HEVC, Flag.RADIO, Flag.ADULT}
+    assert DEFAULT_HIDDEN_FLAGS == {Flag.PPV, Flag.HEVC, Flag.RADIO, Flag.ADULT, Flag.INTERLACED, Flag.FORMAT}
     assert parse_flags(["PPV", "24/7", "bogus"]) == {Flag.PPV, Flag.LOOP_247}
+
+
+@pytest.mark.parametrize(
+    "name, expected",
+    [
+        ("Ahlulbayt TV (1080p) [Not 24/7]", {Flag.PART_TIME}),  # not the 24/7 loop label
+        ("Akaal Channel (396p) [Geo-blocked]", {Flag.GEO}),
+        ("News (576i)", {Flag.INTERLACED}),
+        ("Sport (1080i) [Geo-blocked] [Not 24/7]", {Flag.INTERLACED, Flag.GEO, Flag.PART_TIME}),
+        ("Classic Movies 24/7", {Flag.LOOP_247}),
+    ],
+)
+def test_iptv_org_labels(name, expected):
+    assert flags_from_name(name) == expected
+
+
+@pytest.mark.parametrize(
+    "url, unsupported",
+    [
+        ("https://example.com/live/playlist.m3u8", False),
+        ("http://example.com/live/1.ts", False),
+        ("https://example.com/manifest.mpd", True),
+        ("https://example.com/manifest.MPD?token=1", True),
+        ("rtmp://example.com/live/stream", True),
+        ("mmsh://example.com/stream", True),
+        ("srt://example.com:9000", True),
+    ],
+)
+def test_unsupported_format_flag(url, unsupported):
+    assert (Flag.FORMAT in channel_flags("X", url=url)) is unsupported
+
+
+def test_region_from_tvg_id():
+    from bonsai.filters import region_from_epg_id, tag_channels
+    from bonsai.models import Category, Channel
+
+    assert region_from_epg_id("AfghanistanInternational.uk@SD") == "UK"
+    assert region_from_epg_id("BBCOne.uk") == "UK"
+    assert region_from_epg_id("nothing") == ""
+    tags = tag_channels([
+        (Category("News", "News"), [Channel(1, "A", "News", epg_channel_id="A.fr@SD"), Channel(2, "B", "News")]),
+        (Category("1", "US| NEWS"), [Channel(3, "C", "1", epg_channel_id="C.uk")]),  # prefix wins
+    ])
+    assert [tags[i].region for i in (1, 2, 3)] == ["FR", OTHER_REGION, "US"]

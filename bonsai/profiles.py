@@ -21,6 +21,7 @@ from pathlib import Path
 from .filters import FilterState
 from .models import Category, Channel
 from .quality import normalise_name
+from .sources import Source
 from .storage import config_dir, write_private
 
 PROFILE_VERSION = 1
@@ -58,6 +59,7 @@ class Profile:
     include_epg: bool = False
     filters: FilterState = field(default_factory=FilterState)
     saved_at: str = ""
+    source: Source = field(default_factory=Source)
 
     def to_json(self) -> dict:
         return {
@@ -69,6 +71,7 @@ class Profile:
             "stream_format": self.stream_format,
             "include_epg": self.include_epg,
             "filters": self.filters.to_json(),
+            "source": self.source.to_json(),
             "channels": [[c.stream_id, c.name, c.category] for c in self.channels],
             "categories": [
                 {"id": c.id, "name": c.name, "full": c.full, "known": c.known} for c in self.categories
@@ -91,6 +94,7 @@ class Profile:
                 include_epg=bool(data.get("include_epg")),
                 filters=FilterState.from_json(data.get("filters")),
                 saved_at=str(data.get("saved_at") or ""),
+                source=Source.from_json(data.get("source")),
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise ProfileError(f"Profile file is damaged: {exc}") from None

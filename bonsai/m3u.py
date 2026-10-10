@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -18,6 +19,9 @@ class PlaylistEntry:
     group: str = ""
     tvg_id: str = ""
     logo: str = ""
+    attrs: tuple[tuple[str, str], ...] = ()  # extra #EXTINF attributes, e.g. http-user-agent
+    options: tuple[str, ...] = ()  # lines written between #EXTINF and the URL (#EXTVLCOPT:...)
+    comment: str = ""  # written as a "# ..." line before the entry (players ignore it)
 
 
 def _one_line(text: str) -> str:
@@ -32,16 +36,23 @@ def _attr(text: str) -> str:
     return _one_line(text).replace('"', "'")
 
 
+_ATTR_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
 def render_m3u(entries: Iterable[PlaylistEntry], epg_url: str | None = None, newline: str = "\n") -> str:
     header = "#EXTM3U"
     if epg_url:
         header += f' x-tvg-url="{_attr(epg_url)}"'
     lines = [header]
     for e in entries:
+        if e.comment:
+            lines.append(f"# {_one_line(e.comment)}")
+        extra = "".join(f' {k}="{_attr(v)}"' for k, v in e.attrs if _ATTR_NAME.match(k))
         lines.append(
             f'#EXTINF:-1 tvg-id="{_attr(e.tvg_id)}" tvg-name="{_attr(e.name)}" '
-            f'tvg-logo="{_attr(e.logo)}" group-title="{_attr(e.group)}",{_one_line(e.name)}'
+            f'tvg-logo="{_attr(e.logo)}"{extra} group-title="{_attr(e.group)}",{_one_line(e.name)}'
         )
+        lines.extend(_one_line(o) for o in e.options if o.startswith("#"))
         lines.append(_one_line(e.url))
     return newline.join(lines) + newline
 
@@ -70,19 +81,33 @@ def build_entries(
     groups: Iterable[tuple[Category, list[Channel]]],
     selected: set[int] | frozenset[int],
     url_for: Callable[[Channel], str],
+    comment_for: Callable[[Channel], str] | None = None,
 ) -> list[PlaylistEntry]:
-    """Entries for the selected channels, keeping category and channel order from `groups`."""
+    """Entries for the selected channels, keeping category and channel order from `groups`.
+
+    A URL is written once even if it is ticked in several categories (playlist
+    sources list a stream under each of its groups); the first one wins.
+    """
     entries = []
+    written: set[str] = set()
     for cat, channels in groups:
         for ch in channels:
-            if ch.stream_id in selected:
-                entries.append(
-                    PlaylistEntry(
-                        name=ch.name,
-                        url=url_for(ch),
-                        group=cat.name,
-                        tvg_id=ch.epg_channel_id,
-                        logo=ch.icon,
-                    )
+            if ch.stream_id not in selected:
+                continue
+            url = url_for(ch)
+            if url in written:
+                continue
+            written.add(url)
+            entries.append(
+                PlaylistEntry(
+                    name=ch.name,
+                    url=url,
+                    group=cat.name,
+                    tvg_id=ch.epg_channel_id,
+                    logo=ch.icon,
+                    attrs=ch.attrs,
+                    options=ch.options,
+                    comment=comment_for(ch) if comment_for else "",
                 )
+            )
     return entries

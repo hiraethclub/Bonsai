@@ -54,6 +54,13 @@ class Channel:
     epg_channel_id: str = ""
     added: datetime | None = None
     is_adult: bool = False
+    # Playlist (M3U) sources only: the stream address, any extra #EXTINF
+    # attributes worth keeping (http-user-agent, http-referrer, ...) and the
+    # option lines that sat between #EXTINF and the URL (#EXTVLCOPT:...).
+    # Xtream channels leave these empty; their URLs are built from the account.
+    url: str = ""
+    attrs: tuple[tuple[str, str], ...] = ()
+    options: tuple[str, ...] = ()
 
     @classmethod
     def from_api(cls, data: dict[str, Any]) -> Channel | None:

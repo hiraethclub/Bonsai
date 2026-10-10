@@ -51,6 +51,18 @@ _TAGS: list[tuple[Tier, set[str]]] = [
     (Tier.SD, {"sd", "576p", "576i", "480p"}),
 ]
 _TIER_OF_WORD = {word: tier for tier, words in _TAGS for word in words}
+# Any other "<height>p" or "<height>i", as in iptv-org names: "Channel (540p)", "(396p)".
+_HEIGHT_WORD = re.compile(r"^(\d{3,4})[pi]$")
+
+
+def _tier_for_height(height: int) -> Tier:
+    if height >= 2000:
+        return Tier.UHD
+    if height > 720:
+        return Tier.FHD
+    if height > 576:
+        return Tier.HD
+    return Tier.SD
 _RANK = {tier: i for i, (tier, _) in enumerate(_TAGS)}  # lower is more specific
 
 
@@ -59,10 +71,19 @@ def words(plain: str) -> list[str]:
     return _WORD.findall(plain.lower())
 
 
+# Small capitals have no Unicode decomposition (NFKC leaves "ʜᴅ" alone), so map them by hand.
+_SMALL_CAPS = str.maketrans({
+    "ᴀ": "A", "ʙ": "B", "ᴄ": "C", "ᴅ": "D", "ᴇ": "E", "ꜰ": "F", "ɢ": "G", "ʜ": "H", "ɪ": "I",
+    "ᴊ": "J", "ᴋ": "K", "ʟ": "L", "ᴍ": "M", "ɴ": "N", "ᴏ": "O", "ᴘ": "P", "ꞯ": "Q", "ʀ": "R",
+    "ꜱ": "S", "ᴛ": "T", "ᴜ": "U", "ᴠ": "V", "ᴡ": "W", "ʏ": "Y", "ᴢ": "Z",
+})
+_SMALL_CAP_CHARS = frozenset(chr(c) for c in _SMALL_CAPS)
+
+
 @lru_cache(maxsize=4096)
 def _is_raised(ch: str) -> bool:
-    """Superscript, subscript or small-form character, e.g. ᴴ, ³, ᶠ, ⁽."""
-    return unicodedata.decomposition(ch).startswith(("<super>", "<sub>", "<small>"))
+    """Superscript, subscript, small-form or small-capital character, e.g. ᴴ, ³, ᶠ, ⁽, ʜ."""
+    return ch in _SMALL_CAP_CHARS or unicodedata.decomposition(ch).startswith(("<super>", "<sub>", "<small>"))
 
 
 def normalise_name(name: str) -> str:
@@ -81,7 +102,7 @@ def normalise_name(name: str) -> str:
             out.append(" ")
         out.append(ch)
         prev_raised = raised
-    return unicodedata.normalize("NFKC", "".join(out))
+    return unicodedata.normalize("NFKC", "".join(out).translate(_SMALL_CAPS))
 
 
 def tier_from_words(ws: list[str]) -> Tier:
@@ -90,6 +111,8 @@ def tier_from_words(ws: list[str]) -> Tier:
     prev = ""
     for w in ws:
         tier = _TIER_OF_WORD.get(w)
+        if tier is None and w[-1] in "pi" and (m := _HEIGHT_WORD.match(w)):
+            tier = _tier_for_height(int(m.group(1)))
         if tier is Tier.HD and prev == "full":  # "Full HD", "Full-HD"
             tier = Tier.FHD
         if tier is not None and _RANK[tier] < best_rank:
