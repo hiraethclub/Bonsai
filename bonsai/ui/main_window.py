@@ -65,6 +65,7 @@ from ..storage import (
     save_settings,
 )
 from .about import show_about
+from .icon import app_icon, set_windows_app_id
 from .channel_tree import COL_ID, COL_LABELS, COL_NAME, COL_STATUS, COL_TICKED, COL_TIER, ChannelTreeModel
 from .filter_panel import FilterPanel
 from .workers import TaskRunner, TestThread
@@ -1382,9 +1383,12 @@ class MainWindow(QMainWindow):
 
 
 def run() -> int:
+    set_windows_app_id()
     app = QApplication(sys.argv)
     app.setApplicationName("Bonsai")
     app.setApplicationVersion(__version__)
+    app.setDesktopFileName("bonsai")  # matches packaging/linux/bonsai.desktop (Wayland uses it for the icon)
+    app.setWindowIcon(app_icon())
     window = MainWindow()
     window.show()
     return app.exec()

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- Small-size Bonsai icon (16-32 px): the same TV + bonsai as the main artwork, simplified. -->
+  <!-- tile -->
+  <rect x="0.5" y="0.5" width="31" height="31" rx="6.5" fill="#2f4870" stroke="#0a1940" stroke-width="1"/>
+  <!-- antenna -->
+  <path d="M12 7.5 L9.5 3.5 M20 7.5 L22.5 3.5" stroke="#0a1940" stroke-width="1.6" stroke-linecap="round"/>
+  <!-- TV body -->
+  <rect x="3.5" y="7.5" width="25" height="17" rx="3" fill="#565c7e" stroke="#0a1940" stroke-width="1.2"/>
+  <!-- screen -->
+  <rect x="5.6" y="9.6" width="17" height="12.8" rx="2" fill="#adcde4" stroke="#0a1940" stroke-width="0.9"/>
+  <!-- knobs -->
+  <circle cx="25.6" cy="12.4" r="1.4" fill="#9aa1b8" stroke="#0a1940" stroke-width="0.7"/>
+  <circle cx="25.6" cy="17.2" r="1.4" fill="#9aa1b8" stroke="#0a1940" stroke-width="0.7"/>
+  <!-- trunk -->
+  <path d="M15.2 25.5 C14.4 22.5 16.6 20.6 15.6 18.2 C15.0 16.8 13.4 16.4 12.6 15.2"
+        fill="none" stroke="#7a4a2b" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M15.8 19.4 C17.6 18.6 18.8 17.6 19.6 16.4" fill="none" stroke="#7a4a2b" stroke-width="1.6" stroke-linecap="round"/>
+  <!-- canopy: three bold pads -->
+  <ellipse cx="14.6" cy="12.4" rx="6.2" ry="3.1" fill="#7dbb4c" stroke="#1d4a1e" stroke-width="0.9"/>
+  <ellipse cx="9.4" cy="16.6" rx="3.6" ry="2.2" fill="#7dbb4c" stroke="#1d4a1e" stroke-width="0.9"/>
+  <ellipse cx="20.6" cy="15.4" rx="3.6" ry="2.2" fill="#7dbb4c" stroke="#1d4a1e" stroke-width="0.9"/>
+  <!-- pot -->
+  <path d="M9.6 24.2 H22.4 L21.0 28.4 H11.0 Z" fill="#73b4dc" stroke="#0a1940" stroke-width="1.1" stroke-linejoin="round"/>
+</svg>

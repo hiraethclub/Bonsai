@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Bonsai
+GenericName=IPTV playlist trimmer
+Comment=Trim a big IPTV channel list down to a small playlist
+Exec=Bonsai
+Icon=bonsai
+Terminal=false
+Categories=AudioVideo;Video;Network;
+StartupWMClass=Bonsai

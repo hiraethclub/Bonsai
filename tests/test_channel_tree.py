@@ -283,4 +283,12 @@ def test_about_box():
     text = about_text()
     assert f"Bonsai {__version__}" in text and "mailto:aisling@hiraeth.club" in text and "GNU General Public" in text
     assert 'href="https://www.threads.com/@hiraeth.clwb">@hiraeth.clwb</a>' in text
-    assert make_about_box().iconPixmap().isNull()
+    assert make_about_box().iconPixmap().width() == 96
+
+
+def test_app_icon_has_all_sizes():
+    from bonsai.ui.icon import SIZES, app_icon
+
+    icon = app_icon()
+    assert not icon.isNull()
+    assert {s.width() for s in icon.availableSizes()} == set(SIZES)

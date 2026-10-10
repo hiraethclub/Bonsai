@@ -24,7 +24,10 @@ jobs:
         run: python -m pytest -q
 
       - name: Build Bonsai.exe
-        run: pyinstaller --noconfirm --onefile --windowed --name Bonsai --paths . packaging/bonsai_app.py
+        run: >-
+          pyinstaller --noconfirm --onefile --windowed --name Bonsai --paths .
+          --icon packaging/icon/bonsai.ico --add-data "bonsai/resources:bonsai/resources"
+          packaging/bonsai_app.py
 
       - name: Check it starts
         shell: pwsh
@@ -69,7 +72,10 @@ jobs:
         run: python -m pytest -q
 
       - name: Build Bonsai
-        run: pyinstaller --noconfirm --onefile --windowed --name Bonsai --paths . packaging/bonsai_app.py
+        run: >-
+          pyinstaller --noconfirm --onefile --windowed --name Bonsai --paths .
+          --icon packaging/icon/bonsai.ico --add-data "bonsai/resources:bonsai/resources"
+          packaging/bonsai_app.py
 
       - name: Check it starts
         env:
@@ -82,7 +88,12 @@ jobs:
 
       - name: Package
         # A tarball keeps the executable bit (artifact zips drop it).
-        run: tar -czf Bonsai-linux-x86_64.tar.gz -C dist Bonsai
+        run: |
+          mkdir -p pkg
+          cp dist/Bonsai pkg/
+          cp packaging/linux/bonsai.desktop pkg/
+          cp bonsai/resources/icon-256.png pkg/bonsai.png
+          tar -czf Bonsai-linux-x86_64.tar.gz -C pkg Bonsai bonsai.desktop bonsai.png
 
       - uses: actions/upload-artifact@v4
         with:

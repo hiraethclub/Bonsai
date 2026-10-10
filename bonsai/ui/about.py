@@ -1,4 +1,4 @@
-"""Help > About Bonsai (in the same style as ByteNoise's About box, without the flag)."""
+"""Help > About Bonsai (in the same style as ByteNoise's About box, with the app icon)."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel, QMessageBox, QWidget
 
 from .. import __version__
+from .icon import icon_pixmap
 
 AUTHOR = "Aisling de Gr&aacute;s"
 EMAIL = "aisling@hiraeth.club"
@@ -29,7 +30,7 @@ def about_text() -> str:
 def make_about_box(parent: QWidget | None = None) -> QMessageBox:
     msg = QMessageBox(parent)
     msg.setWindowTitle("About Bonsai")
-    msg.setIcon(QMessageBox.Icon.NoIcon)
+    msg.setIconPixmap(icon_pixmap(96))
     msg.setTextFormat(Qt.TextFormat.RichText)
     msg.setText(about_text())
     msg.setStandardButtons(QMessageBox.StandardButton.Ok)

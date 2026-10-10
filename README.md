@@ -189,6 +189,14 @@ GitHub Actions builds the app on every push to `main`. Open the repository's **A
 
   If Qt complains about the "xcb" platform plugin, install `libxcb-cursor0` (`sudo apt install libxcb-cursor0`).
 
+  To add Bonsai to your application menu, with its icon:
+
+  ```bash
+  mkdir -p ~/.local/bin ~/.local/share/applications ~/.local/share/icons/hicolor/256x256/apps
+  cp Bonsai ~/.local/bin/ && cp bonsai.desktop ~/.local/share/applications/
+  cp bonsai.png ~/.local/share/icons/hicolor/256x256/apps/bonsai.png
+  ```
+
 Both builds keep their settings in the same places as the source version.
 
 ### Windows notes
@@ -202,10 +210,12 @@ Both builds keep their settings in the same places as the source version.
 
 ```bash
 pip install -r requirements.txt -r packaging/requirements-build.txt
-pyinstaller --onefile --windowed --name Bonsai --paths . packaging/bonsai_app.py
+pyinstaller --onefile --windowed --name Bonsai --paths . --icon packaging/icon/bonsai.ico --add-data "bonsai/resources:bonsai/resources" packaging/bonsai_app.py
 ```
 
-The result is in `dist/`. PyInstaller can't cross-compile: build the Windows `.exe` on Windows and the Linux binary on Linux.
+The result is in `dist/`.
+
+The icon comes from two sources in `packaging/icon/`: `bonsai-1024.png` (the full artwork, used at 48 px and up) and `bonsai-small.svg` (a simplified drawing for 16–32 px). After changing either, run `python packaging/make_icons.py` (needs `pip install pillow`) to regenerate `bonsai/resources/icon-*.png` and `packaging/icon/bonsai.ico`. PyInstaller can't cross-compile: build the Windows `.exe` on Windows and the Linux binary on Linux.
 
 ## Tests
 
