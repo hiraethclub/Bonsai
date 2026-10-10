@@ -214,3 +214,9 @@ The result is in `dist/`. PyInstaller can't cross-compile: build the Windows `.e
 ```
 
 The tests don't touch the network or your real config.
+
+## Licence
+
+Bonsai is free software, released under the [GNU General Public License v3](LICENSE).
+
+Created by Aisling de Grás · [aisling@hiraeth.club](mailto:aisling@hiraeth.club) · Threads: [@hiraeth.clwb](https://www.threads.com/@hiraeth.clwb)

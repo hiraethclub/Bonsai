@@ -64,6 +64,7 @@ from ..storage import (
     save_config,
     save_settings,
 )
+from .about import show_about
 from .channel_tree import COL_ID, COL_LABELS, COL_NAME, COL_STATUS, COL_TICKED, COL_TIER, ChannelTreeModel
 from .filter_panel import FilterPanel
 from .workers import TaskRunner, TestThread
@@ -129,6 +130,11 @@ class MainWindow(QMainWindow):
     # -- layout ------------------------------------------------------------
 
     def _build_ui(self) -> None:
+        help_menu = self.menuBar().addMenu("&Help")
+        about_action = QAction("&About Bonsai", self)
+        about_action.triggered.connect(lambda: show_about(self))
+        help_menu.addAction(about_action)
+
         central = QWidget()
         root = QVBoxLayout(central)
         self.setCentralWidget(central)

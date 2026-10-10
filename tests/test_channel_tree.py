@@ -4,7 +4,8 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 QtCore = pytest.importorskip("PySide6.QtCore")
-from PySide6.QtCore import QCoreApplication, QModelIndex, Qt  # noqa: E402
+from PySide6.QtCore import QModelIndex, Qt  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from bonsai.models import Category, Channel  # noqa: E402
 from bonsai.ui.channel_tree import COL_TICKED, ChannelTreeModel  # noqa: E402
@@ -18,7 +19,7 @@ Checked, Unchecked, Partial = (
 
 @pytest.fixture(scope="module", autouse=True)
 def app():
-    return QCoreApplication.instance() or QCoreApplication([])
+    return QApplication.instance() or QApplication([])  # a GUI app: the About test builds a dialog
 
 
 @pytest.fixture
@@ -273,3 +274,13 @@ def test_test_results_filter_and_live_updates():
     m.refilter()
     assert m.status_of(1) == "novita"
     assert m.data(m.index(0, COL_STATUS, news)) == "✓ not on Vita: fMP4 segments"
+
+
+def test_about_box():
+    from bonsai import __version__
+    from bonsai.ui.about import about_text, make_about_box
+
+    text = about_text()
+    assert f"Bonsai {__version__}" in text and "mailto:aisling@hiraeth.club" in text and "GNU General Public" in text
+    assert 'href="https://www.threads.com/@hiraeth.clwb">@hiraeth.clwb</a>' in text
+    assert make_about_box().iconPixmap().isNull()
