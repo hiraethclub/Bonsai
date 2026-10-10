@@ -25,12 +25,15 @@ from PySide6.QtGui import QColor, QFont
 from ..filters import ChannelTags, FilterState, Flag, flags_from_name, tag_channels
 from ..models import Category, Channel
 from ..quality import Tier, normalise_name, tier_from_name
+from ..results import NOT_ON_VITA, NOT_WORKING, UNTESTED, WORKING, status_class
+from ..streamtest import DEEP, TestResult
 
-COL_NAME, COL_TIER, COL_LABELS, COL_TICKED, COL_ID = range(5)
-HEADERS = ("Name", "Tier", "Labels", "Ticked", "Stream ID")
+COL_NAME, COL_TIER, COL_LABELS, COL_STATUS, COL_TICKED, COL_ID = range(6)
+HEADERS = ("Name", "Tier", "Labels", "Status", "Ticked", "Stream ID")
 
 # Translucent so it reads on both light and dark themes.
 NEW_BACKGROUND = QColor(76, 175, 80, 70)
+STATUS_COLOURS = {WORKING: QColor(46, 160, 67), NOT_ON_VITA: QColor(214, 137, 16), NOT_WORKING: QColor(218, 54, 51)}
 
 
 class _CatNode:
@@ -82,6 +85,8 @@ class ChannelTreeModel(QAbstractItemModel):
         self._key: dict[int, str] = {}  # normalised, casefolded channel names for searching
         self._ticked: set[int] = set()
         self._new: set[int] = set()
+        self._results: dict[int, TestResult] = {}
+        self._testing: set[int] = set()
         self._state = FilterState()
         self._filter = ""
         self.playlist_mode = False  # playlist sources show the stream's server instead of an id
@@ -102,6 +107,8 @@ class ChannelTreeModel(QAbstractItemModel):
         self._key = {ch.stream_id: normalise_name(ch.name).casefold() for n in self._groups for ch in n.channels}
         self._ticked &= self._node_of.keys()
         self._new &= self._node_of.keys()
+        self._results = {k: v for k, v in self._results.items() if k in self._node_of}
+        self._testing.clear()
         self._refilter()
         self.endResetModel()
         self.tickedChanged.emit()
@@ -137,9 +144,9 @@ class ChannelTreeModel(QAbstractItemModel):
         self.endResetModel()
 
     def _refilter(self) -> None:
-        allows, tags = self._state.allows, self._tags
+        allows, tags, status = self._state.allows, self._tags, self.status_of
         for node in self._groups:
-            node.shown = [ch for ch in node.channels if allows(tags[ch.stream_id])]
+            node.shown = [ch for ch in node.channels if allows(tags[ch.stream_id], status(ch.stream_id))]
             node.ticked = sum(1 for ch in node.shown if ch.stream_id in self._ticked)
             node.new = sum(1 for ch in node.shown if ch.stream_id in self._new)
         self._apply_search()
@@ -157,7 +164,62 @@ class ChannelTreeModel(QAbstractItemModel):
             node.row = row
 
     def _eligible(self, stream_id: int) -> bool:
-        return self._state.allows(self._tags.get(stream_id))
+        return self._state.allows(self._tags.get(stream_id), self.status_of(stream_id))
+
+    # -- test results ----------------------------------------------------------
+
+    def status_of(self, stream_id: int) -> str:
+        return status_class(self._results.get(stream_id))
+
+    def result_of(self, stream_id: int) -> TestResult | None:
+        return self._results.get(stream_id)
+
+    def set_results(self, results: dict[int, TestResult]) -> None:
+        """Replace all test results (e.g. loaded from disk) and re-apply the filters."""
+        self.beginResetModel()
+        self._results = {k: v for k, v in results.items() if k in self._node_of}
+        self._testing.clear()
+        self._refilter()
+        self.endResetModel()
+        self.tickedChanged.emit()
+
+    def mark_testing(self, stream_ids: Iterable[int]) -> None:
+        self._testing = set(stream_ids) & self._node_of.keys()
+        self._emit_rows(self._testing)
+
+    def update_result(self, stream_id: int, result: TestResult) -> None:
+        """Record one result while a test runs. Rows are not re-filtered until refilter()."""
+        if stream_id not in self._node_of:
+            return
+        self._results[stream_id] = result
+        self._testing.discard(stream_id)
+        self._emit_rows([stream_id])
+
+    def end_testing(self) -> None:
+        self._testing.clear()
+        self.refilter()
+
+    def refilter(self) -> None:
+        self.beginResetModel()
+        self._refilter()
+        self.endResetModel()
+        self.tickedChanged.emit()
+
+    def status_counts(self) -> Counter[str]:
+        return Counter(self.status_of(sid) for sid in self._node_of)
+
+    def _emit_rows(self, stream_ids: Iterable[int]) -> None:
+        wanted = set(stream_ids)
+        for node in self._visible:
+            if not wanted:
+                break
+            hits = [i for i, ch in enumerate(node.visible) if ch.stream_id in wanted]
+            if not hits:
+                continue
+            wanted -= {node.visible[i].stream_id for i in hits}
+            parent = self.index(node.row, 0)
+            self.dataChanged.emit(self.index(min(hits), COL_STATUS, parent), self.index(max(hits), COL_STATUS, parent))
+            self.dataChanged.emit(self.index(node.row, COL_STATUS), self.index(node.row, COL_STATUS))
 
     # -- queries -------------------------------------------------------------
 
@@ -268,8 +330,8 @@ class ChannelTreeModel(QAbstractItemModel):
             self._refilter()
             self.endResetModel()
 
-    def set_ticked_for_indexes(self, indexes: Iterable[QModelIndex], ticked: bool) -> None:
-        """Tick/untick the rows behind the given indexes (categories mean their visible channels)."""
+    def ids_for_indexes(self, indexes: Iterable[QModelIndex]) -> set[int]:
+        """Stream ids behind tree rows (a category row means its visible channels)."""
         ids: set[int] = set()
         for idx in indexes:
             ptr = idx.internalPointer() if idx.isValid() else None
@@ -277,7 +339,14 @@ class ChannelTreeModel(QAbstractItemModel):
                 ids.update(ch.stream_id for ch in ptr.visible)
             elif isinstance(ptr, _ChildRef):
                 ids.add(ptr.node.visible[idx.row()].stream_id)
-        self.set_ticked(ids, ticked)
+        return ids
+
+    def visible_ids(self) -> set[int]:
+        return {ch.stream_id for n in self._visible for ch in n.visible}
+
+    def set_ticked_for_indexes(self, indexes: Iterable[QModelIndex], ticked: bool) -> None:
+        """Tick/untick the rows behind the given indexes (categories mean their visible channels)."""
+        self.set_ticked(self.ids_for_indexes(indexes), ticked)
 
     def clear_ticked(self) -> None:
         self.set_ticked(list(self._ticked), False)
@@ -370,6 +439,8 @@ class ChannelTreeModel(QAbstractItemModel):
             if col == COL_LABELS:
                 text = _labels(tags.flags) if tags else ""
                 return f"NEW {text}".strip() if is_new else text
+            if col == COL_STATUS:
+                return self._status_text(sid)
             if col == COL_ID:
                 return urlsplit(ch.url).netloc if ch.url else str(sid)
         elif role == Qt.ItemDataRole.CheckStateRole and col == COL_NAME:
@@ -378,6 +449,10 @@ class ChannelTreeModel(QAbstractItemModel):
             return ch.url
         elif role == Qt.ItemDataRole.BackgroundRole and is_new:
             return NEW_BACKGROUND
+        elif role == Qt.ItemDataRole.ForegroundRole and col == COL_STATUS:
+            return STATUS_COLOURS.get(self.status_of(sid))
+        elif role == Qt.ItemDataRole.ToolTipRole and col == COL_STATUS:
+            return self._status_tooltip(sid)
         elif role == Qt.ItemDataRole.FontRole and col == COL_TIER and tags and tags.tier_inherited:
             return self._italic
         elif role == Qt.ItemDataRole.ToolTipRole and col in (COL_NAME, COL_TIER, COL_LABELS):
@@ -395,6 +470,14 @@ class ChannelTreeModel(QAbstractItemModel):
                 return f"{node.new} NEW {text}".strip() if node.new else text
             if col == COL_TICKED:
                 return f"{node.ticked} / {len(node.shown)}"
+            if col == COL_STATUS:
+                counts = Counter(self.status_of(ch.stream_id) for ch in node.channels)
+                bits = []
+                if counts[WORKING] + counts[NOT_ON_VITA]:
+                    bits.append(f"{counts[WORKING] + counts[NOT_ON_VITA]} \u2713")
+                if counts[NOT_WORKING]:
+                    bits.append(f"{counts[NOT_WORKING]} \u2717")
+                return "  ".join(bits)
         elif role == Qt.ItemDataRole.CheckStateRole and col == COL_NAME:
             return self._cat_state(node)
         elif role == Qt.ItemDataRole.FontRole:
@@ -410,6 +493,33 @@ class ChannelTreeModel(QAbstractItemModel):
                 tip += f"\n{node.new} new since the profile was saved"
             return tip
         return None
+
+    def _status_text(self, sid: int) -> str:
+        if sid in self._testing:
+            return "testing\u2026"
+        r = self._results.get(sid)
+        cls = status_class(r)
+        if cls == UNTESTED:
+            return ""
+        if cls == NOT_WORKING:
+            return f"\u2717 {r.reason}"
+        text = r.detail if r.mode == DEEP and r.detail else r.reason
+        if cls == NOT_ON_VITA:
+            return f"\u2713 not on Vita: {r.vita_reason}"
+        return f"\u2713 {text}"
+
+    def _status_tooltip(self, sid: int) -> str | None:
+        r = self._results.get(sid)
+        if r is None:
+            return "Testing\u2026" if sid in self._testing else None
+        lines = [{"ok": "Working", "fail": "Not working", "skip": "Not tested"}.get(r.status, r.status) + f": {r.reason}"]
+        if r.detail:
+            lines.append(r.detail)
+        if r.vita:
+            lines.append("PS Vita (VitaIPTV): " + ("yes" if r.vita == "yes" else "no")
+                         + (f" \u2014 {r.vita_reason}" if r.vita_reason else ""))
+        lines.append(f"{'Deep' if r.mode == DEEP else 'Quick'} test, {r.at.replace('T', ' ')[:16]} UTC")
+        return "\n".join(lines)
 
     @staticmethod
     def _channel_tooltip(ch: Channel, tags: ChannelTags | None, is_new: bool) -> str:

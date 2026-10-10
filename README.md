@@ -5,7 +5,7 @@ Bonsai trims a big IPTV channel list down to a small `.m3u` playlist for low spe
 - **An Xtream Codes account.** The trimmed playlist still plays through the same account. Bonsai only **reads** from the provider and writes local files, never changing anything on the provider side, so other devices can keep using the full list. Live TV only: no movies, series or VOD.
 - **Any M3U playlist**, from a link or a file, such as the public [iptv-org](https://github.com/iptv-org/iptv) lists.
 
-> Status: milestones 1–6 of 8 (API client, playlist writer, main window, filters, profiles and caching, M3U import). Next: stream testing.
+> Status: milestones 1–7 of 8 (API client, playlist writer, main window, filters, profiles and caching, M3U import, stream testing). Next: packaging.
 
 ## Security warning
 
@@ -23,7 +23,7 @@ Your server, username and password are stored in a local config file, readable o
 
 Credentials are never hard coded and never stored in the project folder.
 
-Bonsai sends no telemetry. It only contacts your IPTV server, the playlist links you load and, when you test streams (milestone 7), the servers in that list. Channel logos are never downloaded.
+Bonsai sends no telemetry. It only contacts your IPTV server, the playlist links you load and, when you test streams, the servers in that list. Channel logos are never downloaded.
 
 ## Setup (Debian 13)
 
@@ -136,6 +136,22 @@ A profile, such as "Vita", saves your ticks, filters, format, EPG option and pla
 
 Profiles are JSON files in `~/.config/bonsai/profiles/`.
 
+### Testing streams
+
+**Test streams** in the search row checks the ticked channels, the channels shown in the list, or the selected rows:
+
+- **Quick test (does it work?)**: about a second per stream. HLS is followed down to a real video segment, using the variant VitaIPTV would pick (the best one up to 720 lines). The test also spots streams VitaIPTV can't play: encrypted HLS, fMP4 segments and DASH.
+- **Deep test (will it play on the Vita?)**: additionally runs ffprobe on what the Vita would play and applies VitaIPTV's rules: H.264 8-bit, at most 1280×720, progressive, AAC/MP2/MP3 audio. Frame rates above 30 fps are noted, because they may stutter.
+
+Requests use each stream's own User-Agent/Referer when the playlist gives one, and otherwise VitaIPTV's (`VLC/3.0.20 LibVLC/3.0.20`).
+
+The **Status** column shows ✓ or ✗ with the reason, and hovering shows the details. A **Tested** filter appears with *Working*, *Works, not on Vita*, *Not working* and *Untested*. *Not working* is hidden by default, so failed streams are left out of the normal export. **Export not working…** writes them to their own playlist, with a `# Not working (date): reason` line above each one. Results are saved per list, so you don't have to retest.
+
+- **Playlists:** 8 streams are tested at once (4 for deep tests), at most 2 per server. The whole iptv-org list takes about half an hour for a quick test.
+- **Xtream accounts:** one channel at a time, with a pause between tests. Before starting, Bonsai checks that none of your connections are in use. If another device starts watching mid-test (the provider answers HTTP 511), the test stops.
+
+For iptv-org lists, consider showing *FHD / 1080* and letting the deep test decide. Many "(1080p)" streams also offer a 720p version, which VitaIPTV picks automatically.
+
 ### Saved channel list
 
 The channel list is cached in `~/.cache/bonsai/` (`%LOCALAPPDATA%\bonsai\cache` on Windows), so the app opens without downloading anything. The Account panel shows when the list was fetched. **Refresh from server** fetches it again. The cache holds channel names and ids only, with no credentials or stream URLs.
@@ -151,7 +167,10 @@ The channel list is cached in `~/.cache/bonsai/` (`%LOCALAPPDATA%\bonsai\cache` 
 .venv/bin/python -m bonsai export -o vita.m3u --category 12 --category 40   # whole categories
 .venv/bin/python -m bonsai profiles                   # list saved profiles
 .venv/bin/python -m bonsai regenerate Vita            # same as the Regenerate button
+.venv/bin/python -m bonsai test LIST.m3u -o working.m3u --not-working dead.m3u   # test a whole playlist
 ```
+
+`test` works on M3U playlists (links or files) only. It never tests an Xtream account in bulk. Add `--deep` for the Vita check.
 
 `regenerate` works well as a scheduled job (cron or a systemd timer) that keeps the Vita playlist up to date.
 

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from typing import Any
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
+from PySide6.QtCore import QObject, QRunnable, QThread, QThreadPool, Signal
 
 from ..api import XtreamError
+from ..streamtest import run_tests
 
 
 class _Signals(QObject):
@@ -70,3 +72,27 @@ class TaskRunner(QObject):
         if was_idle:
             self.busyChanged.emit(True)
         self._pool.start(task)
+
+
+class TestThread(QThread):
+    """Runs a batch of stream tests off the UI thread; results arrive via `result` as they finish."""
+
+    result = Signal(object, object)  # TestJob, TestResult
+
+    def __init__(self, jobs, test, workers: int, per_host: int, delay: float, parent=None) -> None:
+        super().__init__(parent)
+        self.jobs = jobs
+        self.test = test
+        self.workers = workers
+        self.per_host = per_host
+        self.delay = delay
+        self.cancel_event = threading.Event()
+
+    def run(self) -> None:
+        run_tests(
+            self.jobs, self.test, lambda job, res: self.result.emit(job, res), self.cancel_event,
+            workers=self.workers, per_host=self.per_host, delay=self.delay,
+        )
+
+    def stop(self) -> None:
+        self.cancel_event.set()

@@ -7,6 +7,7 @@
     python -m bonsai export -o FILE --category ID [--category ID ...] [--ext m3u8] [--epg]
     python -m bonsai profiles
     python -m bonsai regenerate NAME [-o FILE]
+    python -m bonsai test PLAYLIST -o WORKING.m3u [--not-working DEAD.m3u] [--deep]
 
 With no command, `python -m bonsai` opens the window instead.
 """
@@ -24,7 +25,9 @@ from .api import XtreamClient, XtreamError
 from .cache import playlist_key, save_lists, xtream_key
 from .filters import tag_channels
 from .playlist import PlaylistError, load_playlist
+from .results import NOT_WORKING, load_results, result_key, save_results, status_class
 from .sources import playlist_epg_url
+from .streamtest import DEEP, QUICK, TestJob, deep_test, quick_test, request_for, run_tests
 from .m3u import build_entries, write_m3u
 from .models import group_channels
 from .storage import ConfigError, config_path, ensure_config_template, load_config
@@ -137,6 +140,7 @@ def cmd_regenerate(args: argparse.Namespace) -> None:
         raise ConfigError(f"Profile \u201c{profile.name}\u201d has no export path yet; pass -o FILE.")
     if profile.source.is_playlist:
         location = profile.source.location
+        list_key = playlist_key(location)
         try:
             cats, chans, header = load_playlist(location)
         except PlaylistError as exc:
@@ -156,10 +160,14 @@ def cmd_regenerate(args: argparse.Namespace) -> None:
             pass  # the cache is only a convenience
         url_for = lambda ch: client.stream_url(ch.stream_id, profile.stream_format)  # noqa: E731
         epg = client.epg_url() if profile.include_epg else None
+        list_key = xtream_key(client.server, client.username)
     groups = group_channels(cats, chans)
     result = profiles.apply(profile, groups)
     tags = tag_channels(groups)
-    exportable = {sid for sid in result.ticked if profile.filters.allows(tags.get(sid))}
+    tested = load_results(list_key)
+    xtream = not profile.source.is_playlist
+    status = {ch.stream_id: status_class(tested.get(result_key(ch, xtream))) for _, cs in groups for ch in cs}
+    exportable = {sid for sid in result.ticked if profile.filters.allows(tags.get(sid), status.get(sid, "untested"))}
     entries = build_entries(groups, exportable, url_for)
     write_m3u(output, entries, epg or None)
     if output != profile.export_path:
@@ -182,6 +190,67 @@ def cmd_regenerate(args: argparse.Namespace) -> None:
             print(f"    {c.name}  ({c.category})")
         if len(result.unmatched) > 20:
             print(f"    ...and {len(result.unmatched) - 20} more")
+
+
+def cmd_test(args: argparse.Namespace) -> None:
+    """Test every stream in a playlist and write working / not working lists."""
+    from threading import Event, Lock
+
+    try:
+        cats, chans, header = load_playlist(args.playlist)
+    except PlaylistError as exc:
+        raise ConfigError(str(exc)) from None
+    groups = group_channels(cats, chans)
+    seen: dict[str, int] = {}
+    jobs = []
+    for _, cs in groups:
+        for ch in cs:
+            if ch.url not in seen:
+                seen[ch.url] = ch.stream_id
+                jobs.append(TestJob(ch.stream_id, request_for(ch)))
+    mode = DEEP if args.deep else QUICK
+    test = (lambda r, s: deep_test(r, s)) if args.deep else (lambda r, s: quick_test(r, s))
+    print(f"{mode.capitalize()}-testing {len(jobs)} streams, {args.workers} at a time…", file=sys.stderr)
+    results = {}
+    lock = Lock()
+    done = [0]
+
+    def on_result(job, res):
+        with lock:
+            results[job.request.url] = res
+            done[0] += 1
+            if done[0] % 100 == 0 or done[0] == len(jobs):
+                print(f"  {done[0]}/{len(jobs)}", file=sys.stderr)
+
+    cancel = Event()
+    try:
+        run_tests(jobs, test, on_result, cancel, workers=args.workers, per_host=2)
+    except KeyboardInterrupt:
+        cancel.set()
+        print("Stopped; writing what was tested so far.", file=sys.stderr)
+    key = playlist_key(args.playlist)
+    stored = load_results(key)
+    stored.update(results)
+    try:
+        save_results(key, stored)
+    except OSError:
+        pass
+    url_for = lambda ch: ch.url  # noqa: E731
+    working = {ch.stream_id for _, cs in groups for ch in cs
+               if ch.url in results and status_class(results[ch.url]) != NOT_WORKING}
+    dead = {ch.stream_id for _, cs in groups for ch in cs
+            if ch.url in results and status_class(results[ch.url]) == NOT_WORKING}
+    epg = playlist_epg_url(header) or None
+    write_m3u(args.output, build_entries(groups, working, url_for), epg)
+    n_ok = len({ch.url for _, cs in groups for ch in cs if ch.stream_id in working})
+    n_dead = len({ch.url for _, cs in groups for ch in cs if ch.stream_id in dead})
+    print(f"Working: {n_ok} streams -> {args.output}")
+    if args.not_working:
+        comment = lambda ch: f"Not working ({results[ch.url].at[:10]}): {results[ch.url].reason}"  # noqa: E731
+        write_m3u(args.not_working, build_entries(groups, dead, url_for, comment))
+        print(f"Not working: {n_dead} streams -> {args.not_working}")
+    else:
+        print(f"Not working: {n_dead} streams (pass --not-working FILE to save them)")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -219,6 +288,14 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("name", help="profile name")
     pr.add_argument("-o", "--output", metavar="FILE", help="write here instead of the profile's path")
     pr.set_defaults(func=cmd_regenerate)
+
+    pt = sub.add_parser("test", help="test every stream in an M3U playlist (not for Xtream accounts)")
+    pt.add_argument("playlist", help="playlist URL or file")
+    pt.add_argument("-o", "--output", required=True, metavar="FILE", help="write the working streams here")
+    pt.add_argument("--not-working", metavar="FILE", help="write the failed streams here, with the reason")
+    pt.add_argument("--deep", action="store_true", help="deep test (ffprobe, Vita verdict); much slower")
+    pt.add_argument("--workers", type=int, default=8, help="streams tested at once (default 8)")
+    pt.set_defaults(func=cmd_test)
     return p
 
 

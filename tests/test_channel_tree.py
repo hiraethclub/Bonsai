@@ -245,3 +245,31 @@ def test_playlist_mode_shows_server():
     assert m.playlist_mode
     assert m.headerData(COL_ID, Qt.Orientation.Horizontal) == "Server"
     assert m.data(m.index(0, COL_ID, m.index(0, 0))) == "cdn.example.com"
+
+
+def test_test_results_filter_and_live_updates():
+    from bonsai.streamtest import FAIL, OK, VITA_NO, TestResult
+    from bonsai.ui.channel_tree import COL_STATUS
+
+    m = ChannelTreeModel()
+    m.set_hidden_tiers(set())
+    m.set_groups([(Category("1", "News"), [Channel(1, "A", "1"), Channel(2, "B", "1"), Channel(3, "C", "1")])])
+    m.set_ticked({1, 2, 3}, True)
+    m.set_results({1: TestResult(OK, "MPEG-TS"), 2: TestResult(FAIL, "HTTP 404: gone")})
+    assert m.ticked_ids() == {1, 3}  # "Not working" hidden by default; untested stays
+    assert m.status_counts() == {"ok": 1, "fail": 1, "untested": 1}
+    news = m.index(0, 0)
+    assert m.data(m.index(0, COL_STATUS, news)) == "✓ MPEG-TS"
+    assert m.data(m.index(0, COL_STATUS)) == "1 ✓  1 ✗"
+
+    m.mark_testing({3})
+    assert m.data(m.index(1, COL_STATUS, news)) == "testing…"
+    m.update_result(3, TestResult(FAIL, "timed out"))
+    assert m.rowCount(news) == 2  # not re-filtered mid-test
+    m.end_testing()
+    assert m.rowCount(news) == 1 and m.ticked_ids() == {1}
+
+    m.update_result(1, TestResult(OK, "HLS", vita=VITA_NO, vita_reason="fMP4 segments"))
+    m.refilter()
+    assert m.status_of(1) == "novita"
+    assert m.data(m.index(0, COL_STATUS, news)) == "✓ not on Vita: fMP4 segments"

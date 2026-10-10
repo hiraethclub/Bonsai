@@ -127,6 +127,7 @@ class Settings:
         default_factory=lambda: ["PPV", "HEVC", "RADIO", "ADULT", "INTERLACED", "FORMAT"]
     )
     hidden_regions: list[str] = field(default_factory=list)
+    hidden_status: list[str] = field(default_factory=lambda: ["fail"])
     last_profile: str = ""
     last_source: dict = field(default_factory=dict)  # {"kind": "m3u", "location": ...} or Xtream
 

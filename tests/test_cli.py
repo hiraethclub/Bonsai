@@ -66,3 +66,38 @@ def test_regenerate_needs_a_path(monkeypatch, capsys):
 def test_regenerate_unknown_profile(capsys):
     assert cli.main(["regenerate", "Nope"]) == 1
     assert "No profile" in capsys.readouterr().err
+
+
+def test_test_command_splits_working_and_dead(tmp_path):
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    ts = bytes([0x47] + [0] * 187) * 20
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            if self.path == "/ok.ts":
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(ts)))
+                self.end_headers()
+                self.wfile.write(ts)
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
+    pl = tmp_path / "in.m3u"
+    pl.write_text(f'#EXTM3U\n#EXTINF:-1 group-title="A;B",Good\n{base}/ok.ts\n'
+                  f'#EXTINF:-1 group-title="A",Bad\n{base}/gone.ts\n')
+    good, bad = tmp_path / "good.m3u", tmp_path / "bad.m3u"
+    try:
+        assert cli.main(["test", str(pl), "-o", str(good), "--not-working", str(bad)]) == 0
+    finally:
+        srv.shutdown()
+    assert good.read_text().count("#EXTINF") == 1 and "ok.ts" in good.read_text()  # written once despite 2 groups
+    assert "# Not working (" in bad.read_text() and "HTTP 404: gone" in bad.read_text()

@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 
 from ..filters import Flag, flag_tooltip
 from ..quality import Tier
+from ..results import STATUS_CLASSES, STATUS_LABELS, STATUS_TOOLTIPS, UNTESTED
 from .flow_layout import FlowLayout
 
 
@@ -123,6 +124,22 @@ class FilterPanel(QGroupBox):
         grid.addWidget(QLabel("Content:"), 1, 0, Qt.AlignmentFlag.AlignTop)
         grid.addWidget(content_box, 1, 1)
 
+        status_box = QWidget()
+        status_flow = FlowLayout(status_box)
+        self.status_checks: dict[str, QCheckBox] = {}
+        for cls in STATUS_CLASSES:
+            box = QCheckBox(STATUS_LABELS[cls])
+            box.setToolTip(STATUS_TOOLTIPS[cls])
+            box.toggled.connect(self.changed)
+            self.status_checks[cls] = box
+            status_flow.addWidget(box)
+        self.status_caption = QLabel("Tested:")
+        grid.addWidget(self.status_caption, 4, 0, Qt.AlignmentFlag.AlignTop)
+        grid.addWidget(status_box, 4, 1)
+        self.status_row = status_box
+        self.status_caption.hide()
+        status_box.hide()
+
         self.regions = _RegionList()
         self.regions.changed.connect(self._regions_changed)
         menu = QMenu(self)
@@ -147,11 +164,15 @@ class FilterPanel(QGroupBox):
         )
         note.setWordWrap(True)
         note.setStyleSheet("color: palette(placeholder-text);")
-        grid.addWidget(note, 3, 0, 1, 2)
+        grid.addWidget(note, 5, 0, 1, 2)
 
     # -- state ---------------------------------------------------------------
 
-    def set_hidden(self, tiers: set[Tier], flags: set[Flag], regions: set[str]) -> None:
+    def set_hidden(self, tiers: set[Tier], flags: set[Flag], regions: set[str], status: set[str] = frozenset()) -> None:
+        for cls, box in self.status_checks.items():
+            box.blockSignals(True)
+            box.setChecked(cls not in status)
+            box.blockSignals(False)
         for tier, box in self.tier_checks.items():
             box.blockSignals(True)
             box.setChecked(tier not in tiers)
@@ -171,6 +192,18 @@ class FilterPanel(QGroupBox):
 
     def hidden_regions(self) -> set[str]:
         return self.regions.hidden()
+
+    def hidden_status(self) -> set[str]:
+        return {c for c, box in self.status_checks.items() if not box.isChecked()}
+
+    def update_status_counts(self, counts: Counter) -> None:
+        tested = sum(n for cls, n in counts.items() if cls != UNTESTED)
+        self.status_caption.setVisible(tested > 0)
+        self.status_row.setVisible(tested > 0)
+        for cls, box in self.status_checks.items():
+            box.setText(f"{STATUS_LABELS[cls]} ({counts[cls]})")
+            box.setVisible(counts[cls] > 0 or cls == UNTESTED)
+            box.updateGeometry()
 
     def update_counts(self, tiers: Counter, flags: Counter, regions: Counter) -> None:
         loaded = bool(tiers)

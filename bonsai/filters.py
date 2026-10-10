@@ -241,18 +241,26 @@ def tag_channels(groups: list[tuple[Category, list[Channel]]]) -> dict[int, Chan
     return tags
 
 
+# Stream test result classes (see results.py); kept as plain strings here so this
+# module does not depend on the tester.
+STATUS_VALUES = ("ok", "novita", "fail", "untested")
+DEFAULT_HIDDEN_STATUS = frozenset({"fail"})
+
+
 @dataclass(frozen=True)
 class FilterState:
     hidden_tiers: frozenset[Tier] = DEFAULT_HIDDEN_TIERS
     hidden_flags: frozenset[Flag] = DEFAULT_HIDDEN_FLAGS
     hidden_regions: frozenset[str] = field(default_factory=frozenset)
+    hidden_status: frozenset[str] = DEFAULT_HIDDEN_STATUS
 
-    def allows(self, tags: ChannelTags | None) -> bool:
+    def allows(self, tags: ChannelTags | None, status: str = "untested") -> bool:
         return (
             tags is not None
             and tags.region not in self.hidden_regions
             and tags.tier not in self.hidden_tiers
             and not (tags.flags & self.hidden_flags)
+            and status not in self.hidden_status
         )
 
     def to_json(self) -> dict:
@@ -260,6 +268,7 @@ class FilterState:
             "hidden_tiers": sorted(t.value for t in self.hidden_tiers),
             "hidden_flags": sorted(f.value for f in self.hidden_flags),
             "hidden_regions": sorted(self.hidden_regions),
+            "hidden_status": sorted(self.hidden_status),
         }
 
     @classmethod
@@ -270,4 +279,6 @@ class FilterState:
             hidden_tiers=frozenset(parse_tiers(data["hidden_tiers"])) if "hidden_tiers" in data else default.hidden_tiers,
             hidden_flags=frozenset(parse_flags(data["hidden_flags"])) if "hidden_flags" in data else default.hidden_flags,
             hidden_regions=frozenset(str(r) for r in data.get("hidden_regions") or ()),
+            hidden_status=frozenset(str(v) for v in data["hidden_status"] if v in STATUS_VALUES)
+            if "hidden_status" in data else default.hidden_status,
         )
