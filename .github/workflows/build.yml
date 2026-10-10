@@ -42,3 +42,50 @@ jobs:
           name: Bonsai-windows
           path: dist/Bonsai.exe
           retention-days: 30
+
+  linux:
+    # Built on an older Ubuntu so the binary also runs on older distributions (glibc 2.35+;
+    # Debian 12 and 13 are fine).
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: System libraries for Qt (and ffmpeg for the deep-test tests)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0 \
+            libxcb-cursor0 libfontconfig1 libdbus-1-3 ffmpeg
+
+      - name: Install
+        run: python -m pip install -r requirements-dev.txt -r packaging/requirements-build.txt
+
+      - name: Tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q
+
+      - name: Build Bonsai
+        run: pyinstaller --noconfirm --onefile --windowed --name Bonsai --paths . packaging/bonsai_app.py
+
+      - name: Check it starts
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          export BONSAI_CONFIG_DIR="$RUNNER_TEMP/bonsai-config"
+          status=0; timeout 15 dist/Bonsai || status=$?
+          if [ "$status" -ne 124 ]; then echo "Bonsai exited early (code $status)"; exit 1; fi
+          echo "Bonsai started and kept running"
+
+      - name: Package
+        # A tarball keeps the executable bit (artifact zips drop it).
+        run: tar -czf Bonsai-linux-x86_64.tar.gz -C dist Bonsai
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Bonsai-linux
+          path: Bonsai-linux-x86_64.tar.gz
+          retention-days: 30

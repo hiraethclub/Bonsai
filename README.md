@@ -5,7 +5,7 @@ Bonsai trims a big IPTV channel list down to a small `.m3u` playlist for low spe
 - **An Xtream Codes account.** The trimmed playlist still plays through the same account. Bonsai only **reads** from the provider and writes local files, never changing anything on the provider side, so other devices can keep using the full list. Live TV only: no movies, series or VOD.
 - **Any M3U playlist**, from a link or a file, such as the public [iptv-org](https://github.com/iptv-org/iptv) lists.
 
-> Status: milestones 1–7 of 8 (API client, playlist writer, main window, filters, profiles and caching, M3U import, stream testing). Next: packaging.
+> Status: all 8 milestones done (API client, playlist writer, main window, filters, profiles and caching, M3U import, stream testing, Windows and Linux builds).
 
 ## Security warning
 
@@ -176,16 +176,36 @@ The channel list is cached in `~/.cache/bonsai/` (`%LOCALAPPDATA%\bonsai\cache` 
 
 `export` also takes `--ext m3u8` and `--epg`.
 
-## Windows
+## Ready-made builds (Windows and Linux)
 
-A Windows build of the app, `Bonsai.exe`, is made automatically by GitHub Actions on every push to `main`. Open the repository's **Actions** tab, choose the latest **Build** run, and download **Bonsai-windows** under *Artifacts* (you need to be signed in to GitHub). The download is a zip containing `Bonsai.exe`, a single file with no installer.
+GitHub Actions builds the app on every push to `main`. Open the repository's **Actions** tab, choose the latest **Build** run, and download one of these under *Artifacts* (you need to be signed in to GitHub):
+
+- **Bonsai-windows**: a zip containing `Bonsai.exe`, a single file with no installer.
+- **Bonsai-linux**: a zip containing `Bonsai-linux-x86_64.tar.gz`, a single executable. It is built on Ubuntu 22.04, so it runs on any x86-64 distribution with glibc 2.35 or newer (Debian 12 and 13, Ubuntu 22.04+). Unpack and run it:
+
+  ```bash
+  tar -xzf Bonsai-linux-x86_64.tar.gz && ./Bonsai
+  ```
+
+  If Qt complains about the "xcb" platform plugin, install `libxcb-cursor0` (`sudo apt install libxcb-cursor0`).
+
+Both builds keep their settings in the same places as the source version.
+
+### Windows notes
 
 - Windows SmartScreen will warn that the app is from an unknown publisher, because it isn't code-signed. Choose *More info → Run anyway*.
 - Settings and profiles live in `%APPDATA%\bonsai\`, and the saved lists and test results in `%LOCALAPPDATA%\bonsai\cache\`.
 - The **deep test** needs `ffprobe.exe` from [FFmpeg](https://www.gyan.dev/ffmpeg/builds/) (or `winget install Gyan.FFmpeg`). Put it next to `Bonsai.exe` or on your PATH. The quick test needs nothing extra.
 - The command line tools aren't part of the `.exe`. Run them from source with `python -m bonsai …`.
 
-To build it yourself on Windows: `pip install -r requirements.txt -r packaging/requirements-build.txt`, then `pyinstaller --onefile --windowed --name Bonsai --paths . packaging/bonsai_app.py`. A Windows `.exe` can only be built on Windows.
+### Building it yourself
+
+```bash
+pip install -r requirements.txt -r packaging/requirements-build.txt
+pyinstaller --onefile --windowed --name Bonsai --paths . packaging/bonsai_app.py
+```
+
+The result is in `dist/`. PyInstaller can't cross-compile: build the Windows `.exe` on Windows and the Linux binary on Linux.
 
 ## Tests
 
