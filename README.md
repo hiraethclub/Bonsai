@@ -5,7 +5,7 @@ Bonsai trims a big IPTV channel list down to a small `.m3u` playlist for low spe
 - **An Xtream Codes account.** The trimmed playlist still plays through the same account. Bonsai only **reads** from the provider and writes local files, never changing anything on the provider side, so other devices can keep using the full list. Live TV only: no movies, series or VOD.
 - **Any M3U playlist**, from a link or a file, such as the public [iptv-org](https://github.com/iptv-org/iptv) lists.
 
-![Bonsai on Windows, with the About box open](docs/screenshot.png)
+<img src="docs/screenshot.png" alt="Bonsai on Windows, with the About box open" width="50%">
 
 **Download:** the latest version for Windows and Linux is on the [Releases page](https://github.com/hiraethclub/Bonsai/releases/latest).
 
